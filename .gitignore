@@ -1,0 +1,7 @@
+# rendered videos (large; make your own from the Wallpaper tab)
+*.mp4
+*.webm
+*.zip
+# local tooling
+.claude/
+__pycache__/

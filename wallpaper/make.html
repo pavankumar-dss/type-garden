@@ -1,0 +1,525 @@
+<!doctype html>
+<!--
+  Garden Wallpaper — composes one seamless MP4 loop from Type Garden's poster motions.
+  Open it with start-wallpaper.cmd (double-click), which starts the local server and opens this page.
+  The garden engine is ../index.html, loaded in a hidden frame; this page sequences it, the server saves
+  frames and runs ffmpeg.
+
+  Transitions are matched, not crossfaded: every motion draws the same garden (same words, same seed), so
+  each hand-over is placed where the two motions' gardens are closest. Where they coincide exactly (Typed's
+  hold, Grow & wither's full bloom, Scatter's full bloom) the cut is invisible; elsewhere the garden's points
+  slide from one pose to the other over the transition, so there is only ever one garden on screen.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garden Wallpaper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0A0A0A;--card:#111;--line:#262626;--line2:#3A3A3A;--fg:#EDEDED;--mute:#8C8C8C}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:12px/1.5 'DM Mono',ui-monospace,monospace;letter-spacing:.03em}
+main{max-width:1280px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
+h1{font:700 26px 'Playfair Display',serif;margin:0;color:#fff}
+h2{font:500 11px 'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 10px}
+.muted{color:var(--mute)}
+#stage{display:flex;justify-content:center;background:#000;border:1px solid #1E1E1E}
+#view{display:block;max-width:100%;max-height:70vh;width:auto;height:auto}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button,select,input{font:inherit;color:var(--fg)}
+button{background:transparent;border:1px solid var(--line2);padding:8px 14px;border-radius:999px;cursor:pointer}
+button:hover{border-color:#fff}
+button.primary{background:#fff;color:#000;border-color:#fff;font-weight:500}
+button.icon{padding:4px 9px;border-radius:8px}
+button:disabled{opacity:.45;cursor:default}
+select,input[type=text],input[type=number]{background:#000;border:1px solid var(--line2);border-radius:8px;padding:6px 8px;outline:none;min-width:0}
+select:focus,input:focus{border-color:#fff}
+#scrub{flex:1;min-width:160px;accent-color:#fff}
+#time{min-width:120px;text-align:right;font-variant-numeric:tabular-nums}
+.cols{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr);gap:14px;align-items:start}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.field{display:grid;grid-template-columns:118px minmax(0,1fr);gap:8px;align-items:center;margin-bottom:10px}
+.field label{color:var(--mute)}
+.field .pair{display:flex;gap:6px}
+.field .pair input{flex:1;width:100%}
+.check{display:flex;gap:8px;align-items:center;cursor:pointer}
+.check input{accent-color:#fff;width:15px;height:15px}
+.segs{display:flex;flex-direction:column;gap:6px}
+.seg,.hdr{display:grid;grid-template-columns:20px minmax(0,1.1fr) minmax(0,1.1fr) 54px 50px 74px auto;gap:6px;align-items:center}
+.seg{padding:4px 6px;border-radius:8px;border:1px solid transparent}
+.seg.on{border-color:#fff;background:#181818}
+.seg.fixed{color:var(--mute)}
+.seg .n{color:var(--mute);text-align:right}
+.seg .at{color:var(--mute);font-variant-numeric:tabular-nums;text-align:right}
+.seg .j{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.seg .j.exact{color:#9BE7A6}
+.seg .j.near{color:#EDEDED}
+.seg .j.far{color:#FFC27A}
+.seg .btns{display:flex;gap:4px}
+.hdr{padding:0 6px 4px;color:var(--mute);font-size:11px}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:6px;border:1px solid #444}
+#status{min-height:18px}
+#blocked{display:none;border:1px solid #FFB4A8;color:#FFD2C4;background:#1a0f0d;border-radius:12px;padding:16px;line-height:1.7}
+#blocked code{color:#fff}
+.legend{margin-top:10px;color:var(--mute);line-height:1.6}
+.legend b{font-weight:400}
+iframe{position:absolute;width:0;height:0;border:0;visibility:hidden}
+@media (max-width:860px){.cols{grid-template-columns:1fr}.seg,.hdr{grid-template-columns:16px 1fr 1fr 46px 44px 64px auto}}
+</style>
+</head>
+<body>
+<main>
+  <div><h1>Garden Wallpaper</h1><div class="muted" id="info">loading the garden…</div></div>
+  <div id="blocked"></div>
+  <div id="stage"><canvas id="view" width="1920" height="1080"></canvas></div>
+  <div class="row">
+    <button id="play">Pause</button>
+    <input id="scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Position in the loop">
+    <span id="time">0.00s</span>
+  </div>
+
+  <div class="cols">
+    <section class="card">
+      <h2>Settings</h2>
+      <div class="field"><label for="s-text">Words</label><input id="s-text" type="text" maxlength="40" spellcheck="false"></div>
+      <div class="field"><label for="s-seed">Garden</label><div class="pair"><input id="s-seed" type="number" min="1" step="1"><button id="s-regrow" type="button">New</button></div></div>
+      <div class="field"><label for="s-size">Size</label><select id="s-size">
+        <option value="1920x1080">1920×1080 · desktop</option>
+        <option value="2560x1440">2560×1440 · desktop QHD</option>
+        <option value="3840x2160">3840×2160 · desktop 4K</option>
+        <option value="1080x1920">1080×1920 · phone</option>
+      </select></div>
+      <div class="field"><label for="s-rate">Frame rate</label><select id="s-rate">
+        <option value="60+30">60 fps + 30 fps files</option>
+        <option value="60">60 fps only</option>
+        <option value="30">30 fps only</option>
+      </select></div>
+      <div class="field"><label for="s-fade">Transition</label><select id="s-fade">
+        <option value="600">0.6 s</option><option value="1000">1 s</option><option value="1500">1.5 s</option>
+      </select></div>
+      <div class="field"><label for="s-bookend">Open &amp; close</label><select id="s-bookend"></select></div>
+      <div class="field"><span></span><label class="check"><input id="s-bee" type="checkbox"> Reach: a bee instead of the light</label></div>
+      <div class="row" style="margin-top:6px"><button id="s-reset" type="button">Reset to defaults</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Sequence</h2>
+      <div class="hdr"><span></span><span>Palette</span><span>Motion</span><span>Repeats</span><span style="text-align:right">Starts</span><span style="text-align:right">Into next</span><span></span></div>
+      <div class="segs" id="segs"></div>
+      <div class="row" style="margin-top:10px"><button id="s-add" type="button">+ Add segment</button><span class="muted" id="cover"></span></div>
+      <div class="legend">Into next: <b style="color:#9BE7A6">exact</b> = the two gardens are identical at the hand-over (a perfect cut);
+        <b>2–5 px</b> = they nearly meet and the points slide the last few pixels; <b style="color:#FFC27A">orange</b> = a longer slide (Breathe never stands still).</div>
+    </section>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="render" disabled>Render MP4</button>
+    <span id="status" class="muted"></span>
+  </div>
+</main>
+<iframe id="eng" src="../index.html?tgtest" title="garden engine"></iframe>
+
+<script>
+(() => {
+'use strict';
+// ---------- settings ----------
+const DEFAULTS = {
+  text: 'in bloom', seed: 7, size: '1920x1080', rate: '60+30',
+  fade: 1000,                           // longest transition; shorter where a motion's matching moment is brief (Scatter)
+  bookend: 'Rose noir',                 // Typed opens (type + first half of the hold) and closes (second half + erase) in this palette
+  bee: true,                            // Reach follows a bee instead of a dot of light
+  // [palette, motion, repeats]. Every palette once, every motion at least once. Motion order found by the
+  // match search: the still ones (Typed, Scatter, Grow & wither) meet exactly, Visitor/Gust/Reach meet within
+  // 3–5 px, and only Breathe (which never stands still) needs longer slides. Palettes run darks → red → lights → black
+  middle: [
+    ['Midnight', 'scatter', 1], ['Orchid', 'grow', 1], ['Moss', 'visit', 1], ['Citrus', 'wind', 1], ['Tomato', 'reach', 1],
+    ['Butter', 'breathe', 2], ['Paper', 'wind', 1], ['Blush', 'scatter', 1], ['Mono', 'grow', 1]
+  ]
+};
+const KEY = 'garden-wallpaper-settings-v3';
+const clone = o => JSON.parse(JSON.stringify(o));
+let S = clone(DEFAULTS);
+try { const saved = JSON.parse(localStorage.getItem(KEY) || 'null'); if (saved && Array.isArray(saved.middle)) S = { ...S, ...saved }; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+
+const $ = s => document.querySelector(s);
+const view = $('#view'), vg = view.getContext('2d');
+const smooth = u => u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u);
+let t, segs = null, J = [], total = 1, W = 1920, H = 1080, OW = 1920, OH = 1080;
+const dims = () => S.size.split('x').map(Number);   // output size
+// the garden is always laid out and animated at the 1080p design size; bigger outputs draw it scaled up, so a
+// 4K render moves exactly like the 1080p one (some motions use fixed pixel distances), only sharper
+const design = () => { const [w, h] = dims(); return w >= h ? [1920, 1080] : [1080, 1920]; };
+const rates = () => S.rate === '60+30' ? { src: 60, out: [60, 30] } : { src: +S.rate, out: [+S.rate] };
+const slug = s => (s || 'garden').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'garden';
+const outName = fps => `garden-${slug(S.text)}-wallpaper-matched-${Math.min(OW, OH)}p${fps}${OH > OW ? '-portrait' : ''}`;
+
+// ---------- recording what the engine draws ----------
+// The engine draws through a small backend (fill / stroke / rect / text). Recording those calls gives every
+// point of the garden in a fixed order, the same in every motion, so two moments can be compared point by
+// point and morphed. The butterfly, the bee (or light) and the caret are marked as extras: they are not part
+// of the garden, so they fade with their own segment instead.
+let REC = null, EXTRA = false;
+const recorder = {
+  fill: (p, col) => REC.push({ k: 0, p, col, x: EXTRA }),
+  stroke: (p, col, w) => REC.push({ k: 1, p, col, w, x: EXTRA }),
+  rect: (x, y, w, h, col) => REC.push({ k: 2, r: [x, y, w, h], col, x: true }),
+  text: (ch, x, y, S2, col) => REC.push({ k: 3, ch, tx: x, ty: y, S: S2, col, x: EXTRA })
+};
+const scratch = document.createElement('canvas').getContext('2d');
+function capture(P, tt) {
+  REC = []; t.P = P; t.backend = () => recorder;
+  try { t.posterDraw(scratch, tt); } finally { delete t.backend; EXTRA = false; }
+  const out = REC; REC = null; return out;
+}
+function gardenPts(cmds) {
+  let n = 0; for (const c of cmds) if (!c.x) n += c.k === 3 ? 1 : c.p.length;
+  const a = new Float32Array(n * 2); let i = 0;
+  for (const c of cmds) { if (c.x) continue; if (c.k === 3) { a[i++] = c.tx; a[i++] = c.ty; } else for (const q of c.p) { a[i++] = q[0]; a[i++] = q[1]; } }
+  return a;
+}
+
+// ---------- the bee (replaces Reach's light; same path, so the stems still lean toward it) ----------
+function bee(B, x, y, tt, P, C) {
+  EXTRA = true;
+  const ph = tt / P.T * Math.PI * 2, s = P.S * 0.14, secs = tt / 1000;
+  // velocity along the light's figure-eight
+  const vx = Math.cos(ph) * P.W * 430 / 1080 * 2 * Math.PI / P.T, vy = 2 * Math.cos(ph * 2) * P.H * 260 / 1080 * 2 * Math.PI / P.T;
+  const k = 0.12, fx = vx / Math.sqrt(vx * vx + k * k);            // turns around by squashing through side-on, not flipping
+  const tilt = Math.max(-0.5, Math.min(0.5, Math.atan2(vy, Math.abs(vx)) * 0.35)) * Math.sign(vx || 1);
+  y += Math.sin(secs * 9) * s * 0.12; x += Math.sin(secs * 5.3) * s * 0.06; // hover wobble
+  // around a hand-over the bee flies out past the nearest side edge (and back in), instead of popping
+  const away = P.beeAway || 0; if (away) x += smooth(away) * (P.W * 0.16 + s * 2) * (x > P.W / 2 ? 1 : -1);
+  const ca = Math.cos(tilt), sa = Math.sin(tilt);
+  const T = (px, py) => { px *= fx; return [x + (px * ca - py * sa) * s, y + (px * sa + py * ca) * s]; };
+  const ell = (cx, cy, rx, ry, a, n = 22) => { const pts = [], c = Math.cos(a), sn = Math.sin(a); for (let i = 0; i < n; i++) { const th = i / n * Math.PI * 2, lx = Math.cos(th) * rx, ly = Math.sin(th) * ry; pts.push(T(cx + lx * c - ly * sn, cy + lx * sn + ly * c)); } return pts; };
+  const rx = 0.62, ry = 0.4;
+  const band = (x0, x1) => { const top = [], bot = []; for (let i = 0; i <= 8; i++) { const px = x0 + (x1 - x0) * i / 8, h = ry * Math.sqrt(Math.max(0, 1 - (px / rx) ** 2)); top.push(T(px, -h)); bot.unshift(T(px, h)); } return [...top, ...bot]; };
+  const rgba = (hex, a) => `rgba(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(',')},${a})`;
+  // stinger, body, stripes cut in the background colour (like the leaf veins), head, antennae
+  B.fill([T(-0.56, -0.1), T(-0.86, 0.02), T(-0.56, 0.12)], C.blue);
+  B.fill(ell(0, 0, rx, ry, 0), C.red);
+  B.fill(band(-0.3, -0.13), C.vein); B.fill(band(0.05, 0.22), C.vein);
+  B.fill(ell(0.68, -0.04, 0.23, 0.22, 0), C.blue);
+  const lw = Math.max(1, s * 0.05);
+  B.stroke([T(0.78, -0.2), T(0.92, -0.42), T(1.04, -0.5)], C.blue, lw);
+  B.stroke([T(0.7, -0.22), T(0.78, -0.46), T(0.86, -0.56)], C.blue, lw);
+  // wings: translucent, buzzing
+  const o = 0.35 + 0.65 * Math.abs(Math.cos(secs * 47));
+  B.fill(ell(-0.12, -0.36 - 0.26 * o, 0.3, 0.2 * o + 0.05, -0.45), rgba(C.text, 0.55));
+  B.fill(ell(0.14, -0.4 - 0.3 * o, 0.36, 0.24 * o + 0.05, -0.25), rgba(C.text, 0.7));
+  EXTRA = false;
+}
+// the original dot of light, as an extra so it fades at hand-overs
+function dot(B, x, y, tt, P, C) {
+  EXTRA = true; const r = P.S * 0.09, pts = [];
+  for (let k = 0; k < 20; k++) { const a = k / 20 * Math.PI * 2; pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); }
+  B.fill(pts, C.line); EXTRA = false;
+}
+
+// ---------- finding the hand-overs ----------
+const FPS_S = 30, FRAME = 1000 / FPS_S;      // search grid
+let PC = {}, SAMP = {}, FULL = 0, sampKey = '';
+function poster(id) {
+  if (!PC[id]) { Object.assign(t.state, { text: S.text || ' ', seed: S.seed, preset: id }); t.buildPoster(W, H, { ends: true }); PC[id] = t.P; }
+  if (id === 'reach') PC[id].drawLight = S.bee ? bee : dot;
+  return PC[id];
+}
+// the garden every 1/30 s through one loop (boil off: pure shape); null where it isn't fully grown
+function sample(id) {
+  if (SAMP[id]) return SAMP[id];
+  const P = poster(id), n = Math.round(P.T / FRAME), arr = new Array(n), boil = t.props.boil;
+  t.props.boil = false; P.boilT = undefined; P.beeAway = 0;
+  for (let i = 0; i < n; i++) { const g = gardenPts(capture(P, i * FRAME)); arr[i] = g.length === FULL ? g : null; }
+  t.props.boil = boil;
+  return (SAMP[id] = arr);
+}
+const feasible = (arr, i, half) => { const n = arr.length; for (let k = -half; k <= half; k++) if (!arr[((i + k) % n + n) % n]) return false; return true; };
+const near = (a, b, T) => { const d = Math.abs(((a - b) % T + T) % T); return Math.min(d, T - d); };
+// keep the unique characters out of the hand-overs: the butterfly is off screen at the very end and start of
+// Visitor's loop; the bee is at a side edge around 1.5 s and 4.5 s of Reach's
+function allowed(id, role, ms) {
+  if (id === 'visit') return role === 'out' ? ms >= 6750 && ms <= 6970 : ms <= 300;
+  if (id === 'reach') return near(ms, 1500, 6000) <= 600 || near(ms, 4500, 6000) <= 600;
+  return true;
+}
+function junction(a, b) {
+  const A = sample(a), B = sample(b);
+  const widths = [S.fade, 1000, 800, 600, 400].filter((x, i, l) => x <= S.fade && l.indexOf(x) === i);
+  for (const strict of [true, false]) for (const w of widths) {
+    const half = Math.round(w / 2 / FRAME);
+    const cands = (id, arr, role) => {
+      if (id === 'typed') { const i = Math.round((3000 + w / 2) / FRAME); return feasible(arr, i, half) ? [i] : []; } // starts right at the half-hold
+      const out = []; for (let i = 0; i < arr.length; i++) if (feasible(arr, i, half) && (!strict || allowed(id, role, i * FRAME))) out.push(i);
+      return out;
+    };
+    const ca = cands(a, A, 'out'), cb = cands(b, B, 'in');
+    let best = null, bm = Infinity;
+    for (const i of ca) { const x = A[i]; for (const j of cb) { const y = B[j]; let m = 0;
+      for (let k = 0; k < x.length; k += 2) { const dx = x[k] - y[k], dy = x[k + 1] - y[k + 1], d = dx * dx + dy * dy; if (d > m) { m = d; if (m >= bm) break; } }
+      if (m < bm) { bm = m; best = [i, j]; } } }
+    if (best) {
+      const x = A[best[0]], y = B[best[1]]; let s = 0; for (let k = 0; k < x.length; k += 2) s += Math.hypot(x[k] - y[k], x[k + 1] - y[k + 1]);
+      return { tA: best[0] * FRAME, tB: best[1] * FRAME, w, max: Math.sqrt(bm), mean: s / (x.length / 2) };
+    }
+  }
+  return { tA: 0, tB: 0, w: S.fade, max: Infinity, mean: Infinity }; // nothing fully grown to match (shouldn't happen)
+}
+
+// ---------- timeline ----------
+function buildTimeline() {
+  [W, H] = design(); [OW, OH] = dims();
+  if (view.width !== OW || view.height !== OH) { view.width = OW; view.height = OH; }
+  const key = [S.text, S.seed, W, H].join('|');
+  if (key !== sampKey) {
+    PC = {}; SAMP = {}; sampKey = key;
+    const boil = t.props.boil; t.props.boil = false;
+    FULL = gardenPts(capture(poster('breathe'), 0)).length; // Breathe is always fully grown
+    t.props.boil = boil;
+  }
+  const pal = name => Math.max(0, t.PAL.findIndex(p => p[0] === name));
+  const seq = [{ id: 'typed', pal: pal(S.bookend), row: 'open' }]
+    .concat(S.middle.map(([p, id, n], i) => ({ id, pal: pal(p), loops: Math.max(1, Math.min(6, n | 0)), row: i })))
+    .concat([{ id: 'typed', pal: pal(S.bookend), row: 'close' }]);
+  J = [];
+  for (let k = 0; k < seq.length - 1; k++) J.push(junction(seq[k].id, seq[k + 1].id));
+  let start = 0;
+  seq.forEach((s, k) => {
+    s.P = poster(s.id);
+    s.tin = k === 0 ? 0 : J[k - 1].tB;
+    s.tout = k === seq.length - 1 ? 6000 : J[k].tA;
+    if (k === 0) s.dur = s.tout;
+    else if (k === seq.length - 1) s.dur = 6000 - s.tin;
+    else { const T = s.P.T; let d = ((s.tout - s.tin) % T + T) % T; if (d < 1500) d += T; s.dur = d + (s.loops - 1) * T; }
+    s.start = start; start += s.dur;
+  });
+  segs = seq; total = start;
+}
+
+// ---------- palette blending in OKLab (perceptually even, no muddy midpoints) ----------
+const lin = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+const gam = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+function toLab(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function fromLab([L, A, B]) {
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, s = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+  const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+  return '#' + rgb.map(c => Math.round(Math.min(1, Math.max(0, gam(c))) * 255).toString(16).padStart(2, '0')).join('');
+}
+const mixHex = (a, b, u) => { if (u <= 0) return a; if (u >= 1) return b; const p = toLab(a), q = toLab(b); return fromLab(p.map((v, i) => v + (q[i] - v) * u)); };
+// the engine's palette shape: { bg, C: { red: flower, blue: stem & leaf, line: flower line, text, vein: bg } }
+function palMix(i, j, u) {
+  const p = t.PAL[i], q = t.PAL[j], c = k => mixHex(p[k], q[k], u), bg = c(1);
+  return { bg, C: { red: c(2), blue: c(3), line: c(4), text: c(5), vein: bg } };
+}
+
+// ---------- drawing a frame ----------
+const STATS = { morph: 0, fallback: 0 };
+function put(R, c, p) {
+  if (c.k === 0) R.fill(p || c.p, c.col); else if (c.k === 1) R.stroke(p || c.p, c.col, c.w);
+  else if (c.k === 2) R.rect(c.r[0], c.r[1], c.r[2], c.r[3], c.col); else R.text(c.ch, c.tx, c.ty, c.S, c.col);
+}
+function shoot(P, tt, G, away, pal) { P.boilT = G; P.beeAway = away; t.pal = () => pal; try { return capture(P, tt); } finally { delete t.pal; } }
+// locate G (ms) in the loop: the segment, and the hand-over around it if G is inside one
+function locate(G) {
+  G = ((G % total) + total) % total;
+  let i = 0; while (i < segs.length - 1 && G >= segs[i + 1].start) i++;
+  if (i < segs.length - 1 && G > segs[i + 1].start - J[i].w / 2) return { G, i, j: i };
+  if (i > 0 && G < segs[i].start + J[i - 1].w / 2) return { G, i, j: i - 1 };
+  return { G, i, j: -1 };
+}
+function drawFrame(Gin, g) {
+  const k = g.canvas.width / W;
+  g.setTransform(k, 0, 0, k, 0, 0);
+  try { drawScene(Gin, g); } finally { g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; }
+}
+function drawScene(Gin, g) {
+  const { G, i, j } = locate(Gin), R = t.backend(g);
+  g.globalAlpha = 1;
+  if (j < 0) {
+    const s = segs[i], pal = palMix(s.pal, s.pal, 0), c = shoot(s.P, s.tin + (G - s.start), G, 0, pal);
+    g.fillStyle = pal.bg; g.fillRect(0, 0, W, H); for (const x of c) put(R, x);
+    return;
+  }
+  const A = segs[j], B = segs[j + 1], jn = J[j], Gj = B.start, u = smooth((G - Gj) / jn.w + 0.5);
+  const pal = palMix(A.pal, B.pal, u);
+  const ca = shoot(A.P, jn.tA + (G - Gj), G, u, pal), cb = shoot(B.P, jn.tB + (G - Gj), G, 1 - u, pal);
+  g.fillStyle = pal.bg; g.fillRect(0, 0, W, H);
+  const ga = ca.filter(c => !c.x), gb = cb.filter(c => !c.x);
+  const same = ga.length === gb.length && ga.every((c, k) => c.k === gb[k].k && (c.k === 3 || c.p.length === gb[k].p.length));
+  if (same) { // one garden, its points sliding from A's pose to B's
+    STATS.morph++;
+    ga.forEach((a, k) => {
+      const b = gb[k];
+      if (a.k === 3) R.text(a.ch, a.tx + (b.tx - a.tx) * u, a.ty + (b.ty - a.ty) * u, a.S, a.col);
+      else { const p = a.p.map((q, n) => [q[0] + (b.p[n][0] - q[0]) * u, q[1] + (b.p[n][1] - q[1]) * u]); if (a.k === 0) R.fill(p, a.col); else R.stroke(p, a.col, a.w + (b.w - a.w) * u); }
+    });
+  } else { // shapes differ (something still growing): fall back to a dissolve
+    STATS.fallback++;
+    ga.forEach(c => put(R, c)); g.globalAlpha = u; gb.forEach(c => put(R, c)); g.globalAlpha = 1;
+  }
+  g.globalAlpha = 1 - u; ca.forEach(c => c.x && put(R, c));
+  g.globalAlpha = u; cb.forEach(c => c.x && put(R, c));
+  g.globalAlpha = 1;
+}
+const activeRows = G => { const { i, j } = locate(G); return j < 0 ? [segs[i].row] : [segs[j].row, segs[j + 1].row]; };
+
+// ---------- settings panel ----------
+const fmt = ms => (ms / 1000).toFixed(1) + 's';
+const jLabel = jn => !isFinite(jn.max) ? ['dissolve', 'far'] : jn.max < 0.05 ? ['exact', 'exact'] : [`${jn.max.toFixed(1)} px`, jn.max <= 6 ? 'near' : 'far'];
+function infoText() {
+  const r = rates(), ex = J.filter(x => x.max < 0.05).length;
+  return `“${S.text}” · ${OW}×${OH} · ${(total / 1000).toFixed(1)}s seamless loop · ${segs.length} segments · ${ex} exact cuts, ${J.length - ex} slides · saves ${r.out.map(f => outName(f) + '.mp4').join(' + ')}`;
+}
+function renderPanel() {
+  $('#s-text').value = S.text; $('#s-seed').value = S.seed; $('#s-size').value = S.size; $('#s-rate').value = S.rate;
+  $('#s-fade').value = String(S.fade); $('#s-bee').checked = !!S.bee;
+  const palOpts = sel => t.PAL.map(p => `<option${p[0] === sel ? ' selected' : ''}>${p[0]}</option>`).join('');
+  $('#s-bookend').innerHTML = palOpts(S.bookend);
+  const motions = t.PRESETS.filter(p => p.id !== 'typed');
+  const sw = name => { const p = t.PAL.find(q => q[0] === name) || t.PAL[0]; return `<span class="swatch" style="background:${p[1]};box-shadow:inset 0 0 0 3px ${p[1]},inset 0 0 0 10px ${p[2]}"></span>`; };
+  const jcell = k => { if (k >= J.length) return '<span class="j muted">loops</span>'; const [txt, cls] = jLabel(J[k]); return `<span class="j ${cls}" title="hand-over over ${(J[k].w / 1000).toFixed(1)} s · average ${J[k].mean.toFixed(2)} px apart">${txt}</span>`; };
+  const fixed = (key, label, k) => { const s = segs.find(x => x.row === key); return `<div class="seg fixed" data-row="${key}"><span class="n">·</span><span>${sw(S.bookend)}${S.bookend}</span><span>Typed</span><span>${label}</span><span class="at">${fmt(s.start)}</span>${jcell(k)}<span></span></div>`; };
+  const rows = S.middle.map(([p, id, loops], i) => {
+    const s = segs.find(x => x.row === i);
+    return `<div class="seg" data-row="${i}"><span class="n">${i + 1}</span>
+      <select data-k="pal" aria-label="Palette for segment ${i + 1}">${palOpts(p)}</select>
+      <select data-k="motion" aria-label="Motion for segment ${i + 1}">${motions.map(m => `<option value="${m.id}"${m.id === id ? ' selected' : ''}>${m.label}</option>`).join('')}</select>
+      <input data-k="loops" type="number" min="1" max="6" value="${loops}" aria-label="Repeats for segment ${i + 1}" title="${fmt(s.dur)} long">
+      <span class="at">${fmt(s.start)}</span>${jcell(i + 1)}
+      <span class="btns"><button class="icon" data-k="up" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button class="icon" data-k="down" ${i < S.middle.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button><button class="icon" data-k="del" ${S.middle.length > 1 ? '' : 'disabled'} aria-label="Remove">✕</button></span></div>`;
+  }).join('');
+  $('#segs').innerHTML = fixed('open', 'type + ½ hold', 0) + rows + fixed('close', '½ hold + erase', J.length);
+  const usedM = new Set(S.middle.map(m => m[1])), usedP = new Set([S.bookend, ...S.middle.map(m => m[0])]);
+  const missP = t.PAL.filter(p => !usedP.has(p[0])).map(p => p[0]), missM = motions.filter(m => !usedM.has(m.id)).map(m => m.label);
+  $('#cover').textContent = missP.length || missM.length ? `not used yet: ${[...missM, ...missP].join(', ')}` : 'every motion and palette is in the loop';
+  $('#info').textContent = infoText();
+}
+function changed() {
+  save(); buildTimeline(); renderPanel();
+  pos = Math.min(pos, total - 1); base = performance.now() - pos;
+}
+function wirePanel() {
+  let tx; $('#s-text').addEventListener('input', e => { S.text = e.target.value; clearTimeout(tx); tx = setTimeout(changed, 350); });
+  $('#s-seed').addEventListener('change', e => { S.seed = Math.max(1, e.target.value | 0); changed(); });
+  $('#s-regrow').addEventListener('click', () => { S.seed = 1 + Math.floor(Math.random() * 99999); changed(); });
+  $('#s-size').addEventListener('change', e => { S.size = e.target.value; changed(); });
+  $('#s-rate').addEventListener('change', e => { S.rate = e.target.value; changed(); });
+  $('#s-fade').addEventListener('change', e => { S.fade = +e.target.value; changed(); });
+  $('#s-bookend').addEventListener('change', e => { S.bookend = e.target.value; changed(); });
+  $('#s-bee').addEventListener('change', e => { S.bee = e.target.checked; changed(); });
+  $('#s-reset').addEventListener('click', () => { S = clone(DEFAULTS); changed(); });
+  $('#s-add').addEventListener('click', () => { const last = S.middle[S.middle.length - 1] || ['Paper', 'breathe', 1]; S.middle.push([last[0], last[1], 1]); changed(); });
+  $('#segs').addEventListener('change', e => {
+    const row = e.target.closest('.seg'), i = +row.dataset.row, k = e.target.dataset.k; if (Number.isNaN(i)) return;
+    if (k === 'pal') S.middle[i][0] = e.target.value;
+    if (k === 'motion') S.middle[i][1] = e.target.value;
+    if (k === 'loops') S.middle[i][2] = Math.max(1, Math.min(6, e.target.value | 0));
+    changed();
+  });
+  $('#segs').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const i = +b.closest('.seg').dataset.row, k = b.dataset.k, m = S.middle;
+    if (k === 'up' && i > 0) [m[i - 1], m[i]] = [m[i], m[i - 1]];
+    if (k === 'down' && i < m.length - 1) [m[i + 1], m[i]] = [m[i], m[i + 1]];
+    if (k === 'del' && m.length > 1) m.splice(i, 1);
+    changed();
+  });
+}
+
+// ---------- preview ----------
+let playing = true, base = performance.now(), pos = 0, rendering = false;
+function tick(now) {
+  requestAnimationFrame(tick);
+  if (!segs || rendering) return;
+  if (playing) pos = (now - base) % total;
+  drawFrame(pos, vg);
+  $('#scrub').value = Math.round(pos / total * 1000);
+  $('#time').textContent = `${(pos / 1000).toFixed(2)} / ${(total / 1000).toFixed(1)}s`;
+  const on = activeRows(pos).map(String);
+  document.querySelectorAll('#segs .seg').forEach(el => el.classList.toggle('on', on.includes(el.dataset.row)));
+}
+$('#play').onclick = () => { playing = !playing; base = performance.now() - pos; $('#play').textContent = playing ? 'Pause' : 'Play'; };
+$('#scrub').oninput = e => { pos = e.target.value / 1000 * total; base = performance.now() - pos; };
+
+// ---------- render: every frame to the local server, then ffmpeg ----------
+const status = s => { $('#status').textContent = s; };
+// one frame to the server, retried a few times so a single dropped connection doesn't sink a long render
+async function upload(i, png) {
+  for (let attempt = 1; ; attempt++) {
+    try { const x = await fetch(`/frames/${i}`, { method: 'POST', body: png }); if (x.ok) return; throw new Error('HTTP ' + x.status); }
+    catch (e) { if (attempt >= 4) throw new Error(`frame ${i} failed to upload (${e.message})`); await new Promise(r => setTimeout(r, 250 * attempt)); }
+  }
+}
+async function render() {
+  if (rendering) return;
+  rendering = true; $('#render').disabled = true;
+  const r = rates(), N = Math.round(total / 1000 * r.src), t0 = performance.now(), inflight = [];
+  try {
+    const r0 = await fetch('/frames/start', { method: 'POST' }).catch(() => null);
+    if (!r0 || !r0.ok) throw new Error('the wallpaper server isn’t running — start it with start-wallpaper.cmd');
+    for (let i = 0; i < N; i++) {
+      drawFrame(i * 1000 / r.src, vg);
+      // toDataURL, not toBlob: in some Chromium builds the async toBlob path takes ~1s per 1080p frame, the sync one ~25ms
+      const png = view.toDataURL('image/png');
+      inflight.push(upload(i, png));
+      if (inflight.length > 4) await inflight.shift();
+      if (i % 20 === 0) { const el = (performance.now() - t0) / 1000; status(`Rendering frame ${i + 1} / ${N} · ${el.toFixed(0)}s elapsed · ~${(el / (i + 1) * (N - i - 1)).toFixed(0)}s left`); }
+    }
+    await Promise.all(inflight);
+    status(`Encoding ${r.out.map(f => f + ' fps').join(' and ')} with ffmpeg… (about a minute)`);
+    const res = await fetch('/encode', { method: 'POST', body: JSON.stringify({ src: r.src, jobs: r.out.map(fps => ({ fps, name: outName(fps) })) }) }).then(x => x.json());
+    window.lastRender = { frames: N, ...res };
+    const bad = res.results.filter(x => !x.ok);
+    status(bad.length ? `ffmpeg failed: ${bad[0].err}` : `Done · saved in the wallpaper folder: ` + res.results.map(x => `${x.file.split(/[\\/]/).pop()} (${(x.bytes / 1048576).toFixed(1)} MB)`).join(' · '));
+  } catch (e) { status('Render failed: ' + e.message); window.lastRender = { error: e.message }; }
+  rendering = false; $('#render').disabled = false;
+}
+$('#render').onclick = render;
+window.wallpaper = { get S() { return S; }, render, drawFrame: G => drawFrame(G, vg), locate, get total() { return total; }, get segs() { return segs; }, get J() { return J; }, STATS, changed, capture, gardenPts };
+
+// ---------- boot: wait for the engine and both documents' fonts ----------
+function blocked(why) {
+  const b = $('#blocked');
+  b.style.display = 'block';
+  b.innerHTML = `<strong>The garden can’t load here.</strong> ${why}<br>
+    Open this page through its little local server instead: double-click <code>start-wallpaper.cmd</code> in the
+    <code>type-garden\\wallpaper</code> folder. It starts the server and opens this page at
+    <code>http://127.0.0.1:8766/wallpaper/make.html</code>. Keep its window open while you preview and render.`;
+  $('#info').textContent = 'not connected';
+}
+if (location.protocol !== 'http:' && location.protocol !== 'https:') blocked('It was opened as a file, and browsers don’t let a file page drive the garden engine.');
+let booted = false;
+setTimeout(() => { if (!booted && $('#blocked').style.display !== 'block') blocked('The garden engine (index.html) didn’t answer.'); }, 12000);
+$('#eng').addEventListener('load', async () => {
+  let w;
+  try { w = $('#eng').contentWindow; void w.document; } catch (e) { return blocked('The browser blocked this page from reaching the garden engine.'); }
+  for (let i = 0; i < 100 && !w.__tg; i++) await new Promise(r => setTimeout(r, 50));
+  if (!w.__tg) return blocked('The garden engine (index.html) didn’t start.');
+  t = w.__tg;
+  const face = '700 100px "Playfair Display"';
+  await Promise.all([document.fonts.load(face), w.document.fonts.load(face)]).catch(() => {});
+  t.cache = {}; // re-measure letters with the real font
+  const fly = t.posterFly; // the butterfly is an extra, not part of the garden
+  t.posterFly = function (...a) { EXTRA = true; try { return fly.apply(this, a); } finally { EXTRA = false; } };
+  if (!t.PAL.some(p => p[0] === S.bookend)) S = clone(DEFAULTS);
+  $('#info').textContent = 'matching frames across the motions…';
+  await new Promise(r => setTimeout(r, 30));
+  buildTimeline(); renderPanel(); wirePanel();
+  booted = true;
+  $('#render').disabled = false;
+  base = performance.now();
+  requestAnimationFrame(tick);
+});
+})();
+</script>
+</body>
+</html>

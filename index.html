@@ -1,0 +1,1635 @@
+<!doctype html>
+<!--
+  Type Garden — a standalone rebuild.
+  Based on Type Garden by Akshat Agarwal (type-garden.vercel.app).
+  One file, canvas + plain JavaScript, no build step. Open it in any modern browser.
+  Letters: Playfair Display Bold · Interface: DM Mono (both from Google Fonts).
+  Modes: Type (grow a garden as you type), Poster (1:1 motion loops), Wallpaper (one seamless loop through every
+  motion and palette with matched hand-overs, exported as MP4 in the browser via WebCodecs — Chrome/Edge).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Type Garden</title>
+<meta name="description" content="A single-file rebuild of Type Garden by Akshat Agarwal (type-garden.vercel.app): roses grow out of your letters as you type.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;overscroll-behavior:none}
+*{box-sizing:border-box}
+a{color:#fff} a:hover{color:#FFB4A8}
+
+/* ---------- app shell ---------- */
+[data-tg="app"]{position:fixed;inset:0;background:#000;cursor:text;font-family:'DM Mono',ui-monospace,monospace;
+  -webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+[data-tg="app"] button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;font:inherit}
+html[data-touch] [data-tg="app"]{touch-action:none;top:var(--tg-top,0px)!important;bottom:auto!important;height:var(--tg-h,100%)!important}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+#inp{position:fixed;left:0;top:0;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;font-size:16px;color:transparent;background:transparent;caret-color:transparent;pointer-events:none}
+[data-tg="app"].poster #cv,[data-tg="app"].poster [data-tg="bar"]{display:none}
+[data-tg="app"]:not(.poster) [data-tg="poster"]{display:none!important}
+
+/* ---------- mode switch ---------- */
+[data-tg="modes"]{position:absolute;top:calc(16px + env(safe-area-inset-top));right:calc(16px + env(safe-area-inset-right));z-index:5;display:flex;gap:4px;padding:4px;border:1px solid #2A2A2A;border-radius:999px;background:#000}
+.mode{border:0;border-radius:999px;padding:7px 14px;font-size:12px!important;letter-spacing:.04em;cursor:pointer;background:transparent;color:#BDBDBD}
+.mode.on{background:#FFFFFF;color:#000000}
+
+/* ---------- type-mode bar ---------- */
+[data-tg="bar"]{position:absolute;left:calc(24px + env(safe-area-inset-left));right:calc(24px + env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom));
+  display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;letter-spacing:.04em;opacity:.6;z-index:3}
+[data-tg="hints"]{display:flex;gap:20px;flex-wrap:wrap}
+[data-tg="ctrls"]{display:flex;gap:8px;align-items:center}
+[data-tg="pal"]{display:flex;gap:6px;align-items:center;padding:4px 6px;border:1px solid #3A3A3A;border-radius:999px}
+[data-tg="sw"]{width:22px;height:22px;padding:0;border-radius:999px;cursor:pointer;border:1.5px solid transparent;display:flex;align-items:center;justify-content:center;transition:transform .12s}
+[data-tg="sw"].on{transform:scale(1.1)}
+[data-tg="sw"]:hover{transform:scale(1.15)}
+[data-tg="dot"]{width:10px;height:10px;border-radius:999px;display:block}
+[data-tg="btn"]{background:transparent;border:1px solid #3A3A3A;color:#BDBDBD;padding:8px 14px;border-radius:999px;cursor:pointer}
+[data-tg="btn"]:hover{border-color:#FFFFFF;color:#FFFFFF}
+[data-tg="coarse"]{display:none}
+@media (pointer:coarse){[data-tg="fine"]{display:none}[data-tg="coarse"]{display:inline}}
+@media (max-width:600px){
+  [data-tg="bar"]{left:calc(16px + env(safe-area-inset-left));right:calc(16px + env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom));gap:10px}
+  [data-tg="hints"]{gap:12px;font-size:11px}
+  [data-tg="ctrls"]{flex:1 1 100%;justify-content:space-between;gap:8px}
+  [data-tg="pal"]{gap:4px}
+  [data-tg="sw"]{--sw:clamp(13px,calc((100vw - 183px) / 10),22px);width:var(--sw);height:var(--sw)}
+  [data-tg="dot"]{width:calc(var(--sw) * .46);height:calc(var(--sw) * .46)}
+  [data-tg="btn"]{padding:7px 11px}
+}
+
+/* ---------- poster mode ---------- */
+[data-tg="poster"]{position:absolute;inset:0;display:grid;grid-template-columns:minmax(280px,340px) minmax(0,1fr);background:#000;cursor:default;color:#EDEDED;font-size:12px;letter-spacing:.03em;-webkit-user-select:auto;user-select:auto}
+[data-tg="panel"]{border-right:1px solid #1E1E1E;overflow-y:auto;overflow-x:hidden;padding:24px 22px 32px;display:flex;flex-direction:column;gap:26px;background:#0A0A0A}
+.sec{display:flex;flex-direction:column;gap:10px}
+.sec.exp{border-top:1px solid #1E1E1E;padding-top:20px}
+.ptitle{font-family:'Playfair Display',serif;font-weight:700;font-size:26px;letter-spacing:0;color:#FFFFFF}
+.muted{color:#8C8C8C}
+.lab{color:#8C8C8C;text-transform:uppercase;font-size:11px;letter-spacing:.08em}
+#ptext{background:#000;border:1px solid #2A2A2A;border-radius:10px;color:#FFFFFF;font-family:'Playfair Display',serif;font-weight:700;font-size:22px;padding:10px 12px;outline:none;width:100%}
+#ptext:focus{border-color:#FFFFFF}
+.ghost{align-self:flex-start;background:transparent;border:1px solid #2A2A2A;color:#EDEDED;padding:8px 12px;border-radius:999px;cursor:pointer}
+.ghost:hover{border-color:#FFFFFF}
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.preset{text-align:left;background:transparent;border:1px solid #2A2A2A;color:#FFFFFF;padding:10px 12px;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;gap:4px}
+.preset.on{background:#161616;border-color:#FFFFFF}
+.preset .l{font-size:13px}.preset .s{color:#8C8C8C;font-size:11px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.card{display:flex;flex-direction:column;gap:8px;align-items:stretch;background:transparent;border:1px solid #2A2A2A;color:#EDEDED;padding:6px 6px 8px;border-radius:12px;cursor:pointer;text-align:left}
+.card:hover{border-color:#8C8C8C}
+.card.on{border-color:#FFFFFF}
+.card .chip{display:flex;align-items:center;justify-content:center;height:44px;border-radius:8px}
+.card .f{width:18px;height:18px;border-radius:50%}
+.card .st{width:12px;height:12px;border-radius:50%;margin-left:-4px}
+.card .aa{font-family:'Playfair Display',serif;font-weight:700;font-size:18px;margin-left:8px}
+.card .nm{padding:0 4px}
+.primary{background:#FFFFFF;border:0;color:#000;font-weight:500!important;padding:12px 14px;border-radius:999px;cursor:pointer}
+.wide{align-self:stretch;border-color:#3A3A3A;padding:11px 14px}
+button:disabled{opacity:.5;cursor:default}
+#status{min-height:16px}
+.credit{margin-top:auto;font-size:11px;line-height:1.6}
+.credit a{color:#BDBDBD}.credit a:hover{color:#FFB4A8}
+[data-tg="stage"]{display:flex;align-items:center;justify-content:center;padding:56px 32px 32px;min-width:0}
+[data-tg="pcanvas"]{width:min(100%, calc(100vh - 96px));height:auto;aspect-ratio:1 / 1;display:block;border:1px solid #1E1E1E}
+@media (max-width:720px){
+  [data-tg="poster"]{display:flex!important;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+  [data-tg="poster"]::before{content:"";order:-2;position:sticky;top:0;flex:none;height:calc(60px + env(safe-area-inset-top));margin-bottom:calc(-60px - env(safe-area-inset-top));background:linear-gradient(#000 62%,rgba(0,0,0,0));z-index:4;pointer-events:none}
+  [data-tg="stage"]{order:-1;flex:none;padding:calc(64px + env(safe-area-inset-top)) 16px 12px}
+  [data-tg="pcanvas"]{width:100%;max-width:520px}
+  [data-tg="panel"]{flex:none;border-right:0;border-top:1px solid #1E1E1E;overflow:visible;padding:20px 16px calc(32px + env(safe-area-inset-bottom))}
+}
+/* ---------- wallpaper mode ---------- */
+[data-tg="app"]:not(.wall) [data-tg="wall"]{display:none!important}
+[data-tg="app"].wall #cv,[data-tg="app"].wall [data-tg="bar"]{display:none}
+[data-tg="wall"]{position:absolute;inset:0;display:grid;grid-template-columns:minmax(340px,420px) minmax(0,1fr);background:#000;cursor:default;color:#EDEDED;font-size:12px;letter-spacing:.03em;-webkit-user-select:auto;user-select:auto}
+[data-tg="wall"] [data-tg="panel"]{gap:22px}
+.wfield{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;align-items:center}
+.wfield label{color:#8C8C8C}
+.wsel,.winput{background:#000;border:1px solid #2A2A2A;border-radius:8px;color:#fff;padding:6px 8px;outline:none;min-width:0;width:100%;font:inherit}
+.wsel:focus,.winput:focus{border-color:#fff}
+.wpair{display:flex;gap:6px;align-items:center}
+.wpair .ghost{align-self:auto;white-space:nowrap}
+.wcheck{display:flex;gap:8px;align-items:center;cursor:pointer;color:#BDBDBD}
+.wcheck input{accent-color:#fff}
+.wsegs{display:flex;flex-direction:column;gap:4px}
+.wseg{display:grid;grid-template-columns:14px minmax(0,1fr) minmax(0,1fr) 44px auto;gap:5px;align-items:center;padding:5px 6px;border:1px solid transparent;border-radius:8px}
+.wseg.on{border-color:#FFFFFF;background:#161616}
+.wseg .n{color:#8C8C8C;text-align:right}
+.wseg .meta{grid-column:2 / -1;display:flex;justify-content:space-between;gap:8px;color:#8C8C8C;font-size:11px}
+.wseg .ex{color:#9BE7A6}.wseg .far{color:#FFC27A}
+.wseg.fixed .cell{color:#BDBDBD;padding:6px 2px}
+.wseg .btns{display:flex;gap:3px}
+.wseg .btns button{background:transparent;border:1px solid #2A2A2A;color:#EDEDED;border-radius:6px;padding:3px 7px;cursor:pointer}
+.wseg .btns button:hover:not(:disabled){border-color:#FFFFFF}
+[data-tg="wstage"]{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:64px 32px 24px;min-width:0}
+#wcv{display:block;max-width:100%;max-height:calc(100vh - 150px);width:auto;height:auto;border:1px solid #1E1E1E;background:#000}
+.wtransport{display:flex;gap:10px;align-items:center;width:100%;max-width:1100px}
+.wtransport .ghost{align-self:auto}
+.wtransport input[type=range]{flex:1;accent-color:#FFFFFF}
+.wtime{min-width:110px;text-align:right;font-variant-numeric:tabular-nums;color:#8C8C8C}
+@media (max-width:860px){
+  [data-tg="wall"]{display:flex!important;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  [data-tg="wstage"]{order:-1;flex:none;padding:calc(64px + env(safe-area-inset-top)) 16px 12px}
+  [data-tg="wall"] [data-tg="panel"]{flex:none;border-right:0;border-top:1px solid #1E1E1E;overflow:visible}
+}
+</style>
+</head>
+<body>
+<div data-tg="app" id="app">
+  <canvas id="cv"></canvas>
+  <input id="inp" data-tg="input" aria-label="Type to grow a garden" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">
+
+  <div data-tg="modes" id="modes"></div>
+
+  <div data-tg="bar" id="bar">
+    <div data-tg="hints">
+      <span data-tg="fine">type to grow</span><span data-tg="coarse">tap to type</span>
+      <span>space cuts</span>
+      <span data-tg="fine">backspace withers</span><span data-tg="coarse">⌫ withers</span>
+      <span data-tg="fine">enter clears</span><span data-tg="coarse">return clears</span>
+    </div>
+    <div data-tg="ctrls">
+      <div data-tg="pal" id="pal"></div>
+      <button data-tg="btn" id="png">PNG</button>
+      <button data-tg="btn" id="svg">SVG</button>
+    </div>
+  </div>
+
+  <div data-tg="poster">
+    <div data-tg="panel">
+      <div class="sec" style="gap:4px">
+        <div class="ptitle">Poster</div>
+        <div class="muted" id="info"></div>
+      </div>
+      <div class="sec">
+        <div class="lab">Words</div>
+        <input id="ptext" spellcheck="false" maxlength="40">
+        <button class="ghost" id="regrow">Regrow garden</button>
+      </div>
+      <div class="sec">
+        <div class="lab">Motion</div>
+        <div class="presets" id="presets"></div>
+      </div>
+      <div class="sec">
+        <div class="lab">Palette</div>
+        <div class="cards" id="cards"></div>
+      </div>
+      <div class="sec exp">
+        <div class="lab">Export · 1080 × 1080 loop</div>
+        <button class="primary" id="vid"></button>
+        <button class="ghost wide" id="frames">PNG frames (.zip)</button>
+        <div class="muted" id="status"></div>
+      </div>
+      <div class="muted credit">Adapted from <a href="https://type-garden.vercel.app" target="_blank" rel="noopener">Type Garden</a> by <a href="https://x.com/art_akshat" target="_blank" rel="noopener">Akshat Agarwal</a></div>
+    </div>
+    <div data-tg="stage"><canvas id="pcv" data-tg="pcanvas" width="1080" height="1080"></canvas></div>
+  </div>
+  <div data-tg="wall">
+    <div data-tg="panel">
+      <div class="sec" style="gap:4px">
+        <div class="ptitle">Wallpaper</div>
+        <div class="muted" id="w-info">matching frames across the motions…</div>
+      </div>
+      <div class="sec">
+        <div class="lab">Settings</div>
+        <div class="wfield"><label for="w-text">Words</label><input class="winput" id="w-text" maxlength="40" spellcheck="false"></div>
+        <div class="wfield"><label for="w-seed">Garden</label><div class="wpair"><input class="winput" id="w-seed" type="number" min="1" step="1"><button class="ghost" id="w-regrow" type="button">New</button></div></div>
+        <div class="wfield"><label for="w-size">Size</label><select class="wsel" id="w-size">
+          <option value="1920x1080">1920×1080 · desktop</option><option value="2560x1440">2560×1440 · desktop QHD</option>
+          <option value="3840x2160">3840×2160 · desktop 4K</option><option value="1080x1920">1080×1920 · phone</option></select></div>
+        <div class="wfield"><label for="w-rate">Frame rate</label><select class="wsel" id="w-rate">
+          <option value="60+30">60 fps + 30 fps files</option><option value="60">60 fps only</option><option value="30">30 fps only</option></select></div>
+        <div class="wfield"><label for="w-fade">Transition</label><select class="wsel" id="w-fade">
+          <option value="600">0.6 s</option><option value="1000">1 s</option><option value="1500">1.5 s</option></select></div>
+        <div class="wfield"><label for="w-bookend">Open &amp; close</label><select class="wsel" id="w-bookend"></select></div>
+        <div class="wfield"><span></span><label class="wcheck"><input id="w-bee" type="checkbox"> Reach: a bee instead of the light</label></div>
+      </div>
+      <div class="sec">
+        <div class="lab">Sequence</div>
+        <div class="wsegs" id="w-segs"></div>
+        <div class="wpair"><button class="ghost" id="w-add" type="button">+ Add segment</button><button class="ghost" id="w-reset" type="button">Reset to preset</button></div>
+        <div class="muted" id="w-cover"></div>
+      </div>
+      <div class="sec exp">
+        <div class="lab">Export · seamless MP4 loop</div>
+        <button class="primary" id="w-export" type="button">Export MP4</button>
+        <div class="muted" id="w-status"></div>
+      </div>
+      <div class="muted credit">Adapted from <a href="https://type-garden.vercel.app" target="_blank" rel="noopener">Type Garden</a> by <a href="https://x.com/art_akshat" target="_blank" rel="noopener">Akshat Agarwal</a></div>
+    </div>
+    <div data-tg="wstage">
+      <canvas id="wcv" width="1920" height="1080"></canvas>
+      <div class="wtransport"><button class="ghost" id="w-play" type="button">Pause</button><input id="w-scrub" type="range" min="0" max="1000" value="0" aria-label="Position in the loop"><span class="wtime" id="w-time"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+class Garden {
+  cv = { current: $('#cv') };
+  inp = { current: $('#inp') };
+  pcv = { current: $('#pcv') };
+  // knobs that were component props in the original
+  props = { boil: true, recoil: 20, density: 1, showHint: true };
+  SENT = String.fromCharCode(0x200b); // kept in the hidden field so Backspace on an empty field still reports
+  F = '"Playfair Display",Georgia,serif';
+  PRESETS = [
+    { id: 'breathe', label: 'Breathe', sub: 'Slow sway · 3s', T: 3000 },
+    { id: 'grow', label: 'Grow & wither', sub: 'Bloom, then back · 6s', T: 6000 },
+    { id: 'typed', label: 'Typed', sub: 'Type, hold, delete · 6s', T: 6000 },
+    { id: 'wind', label: 'Gust', sub: 'Wind sweeps through · 4s', T: 4000 },
+    { id: 'reach', label: 'Reach', sub: 'Stems follow a light · 6s', T: 6000 },
+    { id: 'scatter', label: 'Scatter', sub: 'Random bloom, fade · 6s', T: 6000 },
+    { id: 'visit', label: 'Visitor', sub: 'Butterfly drops by · 7s', T: 7000 }
+  ];
+  // name, background, flower, stem & leaf, flower line, type
+  PAL = [
+    ['Rose noir', '#000000', '#FF1400', '#3257FF', '#FFB4A8', '#FFFFFF'],
+    ['Paper', '#F3EEE4', '#FF3B1F', '#1C2B8F', '#FFD2C4', '#111111'],
+    ['Midnight', '#0D1B4C', '#FF5A4E', '#9FB4FF', '#FFD6CF', '#FFFFFF'],
+    ['Citrus', '#0E1A12', '#FF8A00', '#1FA463', '#FFE2B8', '#FFF6E8'],
+    ['Orchid', '#140A1F', '#E63CFF', '#2FB8A6', '#F9D1FF', '#FFFFFF'],
+    ['Moss', '#133A2A', '#FFB7C5', '#7FD18B', '#FFFFFF', '#F6F1E7'],
+    ['Tomato', '#FF1400', '#FFF1E0', '#0B0B0B', '#FF1400', '#000000'],
+    ['Butter', '#FFE9A8', '#E4002B', '#0F5132', '#FFC2C2', '#1A1A1A'],
+    ['Blush', '#FAD4D8', '#C8102E', '#274690', '#FFE3E6', '#1A1A1A'],
+    ['Mono', '#000000', '#F2F2F2', '#6E6E6E', '#000000', '#FFFFFF']
+  ];
+  state = { mode: 'type', preset: 'breathe', palette: 0, text: 'in bloom', seed: 7, status: '', busy: false };
+
+  setState(patch, cb) { Object.assign(this.state, patch); this.renderUI(); if (cb) cb(); }
+  upd(patch) { this.setState(patch, () => this.buildPoster()); }
+
+  mount() {
+    this.letters = []; this.uid = 1; this.cache = {}; this.Sd = 0; this.St = 0; this.wrapped = false;
+    this.t0 = performance.now(); this.lastKey = 0; this.rand = Math.random;
+    this.g = this.cv.current.getContext('2d');
+    this.buildUI();
+    window.addEventListener('resize', () => this.resize());
+    this.resize();
+    window.addEventListener('keydown', e => this.key(e));
+    this.fa = {}; this.mx = null; this.flies = []; this.perch = []; this.gifts = [];
+    window.addEventListener('pointermove', e => { this.mx = e.clientX; this.my = e.clientY; });
+    document.addEventListener('pointerleave', () => { this.mx = null; });
+    document.addEventListener('mouseout', e => { if (!e.relatedTarget) this.mx = null; }); // pointer left the window
+    // ---------- phone ----------
+    this.touch = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+    if (this.touch) document.documentElement.setAttribute('data-touch', '');
+    this.ptype = 'mouse';
+    window.addEventListener('pointerdown', e => { this.ptype = e.pointerType || 'mouse'; }, true);
+    const up = e => { if (e.pointerType && e.pointerType !== 'mouse') this.mx = null; }; // roses relax when the finger lifts
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    const fld = this.inp.current;
+    this.iv = this.SENT; fld.value = this.SENT;
+    fld.addEventListener('input', e => this.inputDiff(e.target));
+    fld.addEventListener('compositionstart', () => { this.composing = true; });
+    fld.addEventListener('compositionend', () => { this.composing = false; setTimeout(() => { if (!this.composing) this.inputDiff(fld); }, 0); });
+    this.vv = window.visualViewport || null; this.vvMax = 0;
+    if (this.vv && this.touch) { const f = () => this.syncVV(); this.vv.addEventListener('resize', f); this.vv.addEventListener('scroll', f); this.syncVV(); }
+    if (/[?&]tgtest/.test(location.search)) window.__tg = this;
+    // double-click / double-tap on the garden plants a rose
+    window.addEventListener('pointerdown', e => this.plant(e));
+    if (document.fonts) document.fonts.load(`700 100px ${this.F}`).then(() => { this.cache = {}; this.layout(); this.buildPoster(); }).catch(() => {});
+    this.vmime = typeof MediaRecorder !== 'undefined' ? ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m)) : null;
+    this.buildPoster();
+    const loop = () => { this.raf = requestAnimationFrame(loop); this.frame(); };
+    loop();
+    if (!this.touch) setTimeout(() => this.inp.current.focus({ preventScroll: true }), 50);
+    this.renderUI();
+  }
+
+  // ---------- interface ----------
+  buildUI() {
+    const app = $('#app');
+    app.addEventListener('pointerdown', ev => this.focusTap(ev));
+    app.addEventListener('click', ev => { if (this.state.mode === 'type' && this.ptype !== 'mouse' && ev.target === this.cv.current) this.inp.current.focus({ preventScroll: true }); });
+    const modes = $('#modes');
+    this.modeBtns = [['type', 'Type'], ['poster', 'Poster'], ['wallpaper', 'Wallpaper']].map(([id, label]) => {
+      const b = el('button', 'mode', label); b.dataset.id = id;
+      b.addEventListener('click', () => this.pickMode(id));
+      modes.appendChild(b); return b;
+    });
+    const pal = $('#pal'), cards = $('#cards');
+    this.swatches = this.PAL.map((p, i) => {
+      const b = el('button'); b.dataset.tg = 'sw'; b.title = p[0]; b.setAttribute('aria-label', p[0]); b.style.background = p[1];
+      const d = el('span'); d.dataset.tg = 'dot'; d.style.background = p[2]; b.appendChild(d);
+      b.addEventListener('click', e => this.pickPalette(e, i));
+      pal.appendChild(b); return b;
+    });
+    this.cards = this.PAL.map((p, i) => {
+      const b = el('button', 'card', `<span class="chip" style="background:${p[1]}"><span class="f" style="background:${p[2]}"></span><span class="st" style="background:${p[3]}"></span><span class="aa" style="color:${p[5]}">Aa</span></span><span class="nm">${p[0]}</span>`);
+      b.setAttribute('aria-label', p[0]);
+      b.addEventListener('click', e => this.pickPalette(e, i));
+      cards.appendChild(b); return b;
+    });
+    const presets = $('#presets');
+    this.presetBtns = this.PRESETS.map(p => {
+      const b = el('button', 'preset', `<span class="l">${p.label}</span><span class="s">${p.sub}</span>`);
+      b.addEventListener('click', () => this.upd({ preset: p.id }));
+      presets.appendChild(b); return b;
+    });
+    $('#png').addEventListener('click', () => { this.savePNG(); this.refocus(); });
+    $('#svg').addEventListener('click', () => { this.saveSVG(); this.refocus(); });
+    $('#ptext').addEventListener('input', e => this.upd({ text: e.target.value }));
+    $('#regrow').addEventListener('click', () => this.upd({ seed: Math.floor(Math.random() * 1e6) }));
+    $('#vid').addEventListener('click', () => this.exportVideo());
+    $('#frames').addEventListener('click', () => this.exportFrames());
+  }
+  pickMode(id) {
+    const s = this.state;
+    if (id === 'poster' && s.mode !== 'poster') this.upd({ mode: 'poster', text: this.liveText() || s.text });
+    else if (id === 'type') this.setState({ mode: 'type' }, () => { this.resize(); this.inp.current.focus({ preventScroll: true }); });
+    else if (id === 'wallpaper' && s.mode !== 'wallpaper') { this.wall = this.wall || makeWallpaper(this); this.setState({ mode: 'wallpaper' }, () => this.wall.open()); }
+  }
+  pickPalette(e, i) { e && e.stopPropagation && e.stopPropagation(); this.setState({ palette: i }, () => this.refocus()); }
+  focusTap(ev) {
+    if (this.state.mode !== 'type') return;
+    const touch = ev.pointerType && ev.pointerType !== 'mouse', onCanvas = ev.target === this.cv.current;
+    // touch: leave focus (and the keyboard) where it is while tapping; the tap's click opens the keyboard
+    if (touch) { if (ev.cancelable && (onCanvas || (ev.target.closest && ev.target.closest('button')))) ev.preventDefault(); }
+    else this.inp.current.focus({ preventScroll: true });
+    if (onCanvas) this.spawnFly(ev.clientX, ev.clientY);
+  }
+  renderUI() {
+    const s = this.state, isType = s.mode === 'type', pr = this.preset(), pc = this.pal();
+    const app = $('#app');
+    app.classList.toggle('poster', s.mode === 'poster');
+    app.classList.toggle('wall', s.mode === 'wallpaper');
+    app.style.background = pc.bg;
+    $('#bar').style.display = isType && this.props.showHint ? '' : 'none';
+    $('#bar').style.color = pc.C.text;
+    $('#pal').style.background = pc.bg;
+    this.modeBtns.forEach(b => b.classList.toggle('on', b.dataset.id === s.mode));
+    this.swatches.forEach((b, i) => {
+      b.classList.toggle('on', s.palette === i);
+      b.style.borderColor = s.palette === i ? pc.C.text : (this.PAL[i][1] === pc.bg ? '#3A3A3A' : 'transparent');
+    });
+    this.cards.forEach((b, i) => b.classList.toggle('on', s.palette === i));
+    this.presetBtns.forEach((b, i) => b.classList.toggle('on', this.PRESETS[i].id === s.preset));
+    $('#info').textContent = `1:1 · ${pr.T / 1000}s loop · 30 fps`;
+    const pt = $('#ptext'); if (document.activeElement !== pt && pt.value !== s.text) pt.value = s.text;
+    $('#status').textContent = s.status;
+    const vid = $('#vid');
+    vid.textContent = this.vmime ? (s.busy ? 'Exporting…' : `Export ${this.vmime.includes('mp4') ? 'MP4' : 'WebM'} loop`) : 'Video export unavailable';
+    vid.disabled = !!s.busy; $('#frames').disabled = !!s.busy;
+  }
+
+  // ---------- butterflies ----------
+  spawnFly(cx, cy) {
+    if (this.flies.length >= 6) { const o = this.flies.find(f => f.st !== 'leave'); if (o) this.flyOff(o); }
+    const taken = new Set(this.flies.filter(f => f.st !== 'leave').map(f => f.pid));
+    let best = null, bd = 1e9;
+    for (const p of this.perch) { if (taken.has(p.id)) continue; const d = Math.hypot(p.x - cx, p.y - cy); if (d < bd) { bd = d; best = p; } }
+    const left = cx < this.W / 2, sz = Math.max(9, this.Sd * 0.09);
+    this.flies.push({ x: left ? -40 : this.W + 40, y: cy + (Math.random() - 0.5) * this.H * 0.4, vx: 0, vy: 0,
+      st: best ? 'fly' : 'wander', pid: best ? best.id : null, hx: cx, hy: cy, t0: performance.now(), ph: Math.random() * 6, sz, seed: Math.random() * 100, ang: 0 });
+  }
+  flyOff(f) { f.st = 'leave'; f.pid = null; f.ex = f.x < this.W / 2 ? -80 : this.W + 80; f.ey = f.y - this.H * 0.3; }
+  drawFlies(B, now, C) {
+    const dt = Math.min(48, now - (this._fl || now)); this._fl = now;
+    const byId = {}; for (const p of this.perch) byId[p.id] = p;
+    this.flies = this.flies.filter(f => {
+      const t = (now - f.t0) / 1000;
+      let tx, ty;
+      if (f.st === 'sit' || f.st === 'fly') {
+        const p = byId[f.pid];
+        if (!p) { this.flyOff(f); }
+        else { tx = p.x + p.R * 0.05; ty = p.y - p.R * 0.55; }
+      }
+      if (f.st === 'wander') {
+        tx = f.hx + Math.sin(t * 1.3 + f.seed) * 70; ty = f.hy + Math.sin(t * 2.1 + f.seed) * 40;
+        if (t > 3.5) this.flyOff(f);
+      }
+      if (f.st === 'leave') { tx = f.ex; ty = f.ey; }
+      if (f.st === 'sit') {
+        f.x += (tx - f.x) * 0.35; f.y += (ty - f.y) * 0.35; f.ang *= 0.85;
+        f.ph += dt * 0.004;
+        const burst = Math.sin(now / 1000 * 0.9 + f.seed) > 0.75;
+        f.open = burst ? 0.2 + 0.8 * Math.abs(Math.cos(now / 1000 * 9 + f.seed)) : 0.25 + 0.15 * Math.sin(f.ph);
+      } else {
+        const dx = tx - f.x, dy = ty - f.y, d = Math.hypot(dx, dy) || 1, sp = f.st === 'leave' ? 0.42 : Math.min(0.34, 0.06 + d * 0.0016);
+        const flut = Math.sin(t * 7 + f.seed) * 0.12, wob = Math.cos(t * 4.3 + f.seed) * 0.1;
+        const ax = (dx / d * sp + wob) - f.vx, ay = (dy / d * sp + flut) - f.vy;
+        f.vx += ax * 0.06 * dt / 16; f.vy += ay * 0.06 * dt / 16;
+        f.x += f.vx * dt; f.y += f.vy * dt + Math.sin(t * 13 + f.seed) * 0.6;
+        f.ang += (Math.max(-0.5, Math.min(0.5, f.vx * 1.4)) - f.ang) * 0.1;
+        f.open = Math.abs(Math.cos(t * 17 + f.seed));
+        if (f.st === 'fly' && d < 5) { f.st = 'sit'; f.ph = 0; }
+        if (f.st === 'leave' && (f.x < -60 || f.x > this.W + 60 || f.y < -60)) return false;
+      }
+      this.butterfly(B, f.x, f.y, f.sz, f.ang, f.open, C);
+      return true;
+    });
+  }
+  butterfly(B, x, y, s, ang, o, C) {
+    const ca = Math.cos(ang), sa = Math.sin(ang), T = (px, py) => [x + (px * ca - py * sa) * s, y + (px * sa + py * ca) * s];
+    const wing = (cx, cy, rx, ry, a, side) => {
+      const pts = [], c = Math.cos(a), sn = Math.sin(a);
+      for (let k = 0; k < 22; k++) { const th = k / 22 * Math.PI * 2, r = 1 + 0.08 * Math.sin(th * 3), lx = Math.cos(th) * rx * r, ly = Math.sin(th) * ry * r; pts.push(T(side * (cx + lx * c - ly * sn) * (0.12 + 0.88 * o), cy + lx * sn + ly * c)); }
+      return pts;
+    };
+    for (const sd of [-1, 1]) {
+      B.fill(wing(0.46, 0.28, 0.36, 0.3, 0.5 * sd * sd, sd), C.text);
+      B.fill(wing(0.55, -0.32, 0.55, 0.36, -0.55, sd), C.text);
+      if (o > 0.35) B.fill(wing(0.66, -0.4, 0.13, 0.11, 0, sd), C.red);
+    }
+    const body = []; for (let k = 0; k < 18; k++) { const th = k / 18 * Math.PI * 2; body.push(T(Math.cos(th) * 0.08, Math.sin(th) * 0.48)); }
+    B.fill(body, C.blue);
+    const lw = Math.max(0.8, s * 0.05);
+    B.stroke([T(0, -0.42), T(-0.14, -0.72), T(-0.24, -0.86)], C.blue, lw);
+    B.stroke([T(0, -0.42), T(0.14, -0.72), T(0.24, -0.86)], C.blue, lw);
+  }
+  faceTurn(e, x, y) {
+    let wx = 0, wy = 0;
+    const A = this.near(x, y);
+    if (A) {
+      const dx = A[0] - x, dy = A[1] - y, d = Math.hypot(dx, dy), reach = 300;
+      if (d < reach && d > 0.001) {
+        const w = 1 - d / reach, s = w * w * (3 - 2 * w) * Math.min(1, d / 40);
+        wx = dx / d * s; wy = dy / d * s;
+      }
+    }
+    const c = this.fa[e.id] || [0, 0];
+    c[0] += (wx - c[0]) * 0.09; c[1] += (wy - c[1]) * 0.09;
+    this.fa[e.id] = c;
+    return c;
+  }
+  // the pointer that roses and letters lean toward
+  near() { return this.mx != null ? [this.mx, this.my] : null; }
+
+  // ---------- planted roses (double-click / double-tap) ----------
+  plant(e) {
+    if (this.state.mode !== 'type' || e.target !== this.cv.current) return;
+    const now = performance.now(), lp = this.lastTap;
+    this.lastTap = { t: now, x: e.clientX, y: e.clientY };
+    if (lp && now - lp.t < 340 && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) < 40 && now - (this.lastPlant || 0) > 1800) {
+      this.lastPlant = now; this.lastTap = null;
+      this.giftRose({ x: e.clientX / this.W, y: e.clientY / this.H, s: Math.floor(Math.random() * 1e6) });
+    }
+  }
+  giftRose(g) {
+    const r = this.rng((g.s | 0) || 1);
+    this.gifts.push({ x: Math.min(1, Math.max(0, g.x)), y: Math.min(1, Math.max(0, g.y)), t0: performance.now(), rot: (r() - 0.5) * 0.8,
+      e: { ph1: r() * 6.283, ph2: r() * 6.283, turns: 1.4 + r() * 0.5 } });
+    if (this.gifts.length > 14) this.gifts.shift();
+  }
+
+  // ---------- math ----------
+  h(n) { const x = Math.sin(n) * 43758.5453; return x - Math.floor(x); }
+  spr(t, k = 7, w = 16) { if (t <= 0) return 0; return 1 - Math.exp(-t * k) * Math.cos(t * w); }
+  eo(t) { if (t <= 0) return 0; if (t >= 1) return 1; return 1 - Math.pow(1 - t, 3); }
+  eb(t) { if (t <= 0) return 0; if (t >= 1) return 1; const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+  rng(seed) {
+    let s = seed | 0;
+    return () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  bez(a, b, c, d, n) {
+    const P = [];
+    for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t;
+      P.push([u*u*u*a[0] + 3*u*u*t*b[0] + 3*u*t*t*c[0] + t*t*t*d[0], u*u*u*a[1] + 3*u*u*t*b[1] + 3*u*t*t*c[1] + t*t*t*d[1]]); }
+    return P;
+  }
+  at(P, u) {
+    const n = P.length; const i = Math.min(n - 2, Math.max(1, Math.round(u * (n - 1))));
+    return [P[i], Math.atan2(P[i+1][1] - P[i-1][1], P[i+1][0] - P[i-1][0])];
+  }
+  jit(id, f, amp) {
+    if (!amp) return [0, 0, 0];
+    return [(this.h(id*1.37 + f*7.13)*2 - 1)*amp, (this.h(id*2.71 + f*3.11)*2 - 1)*amp, (this.h(id*5.3 + f*1.7)*2 - 1)*0.035];
+  }
+  path(c, p, closed) {
+    const n = p.length; if (n < 2) return;
+    const m = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (closed) {
+      const s = m(p[n-1], p[0]); c.moveTo(s[0], s[1]);
+      for (let i = 0; i < n; i++) { const q = m(p[i], p[(i+1) % n]); c.quadraticCurveTo(p[i][0], p[i][1], q[0], q[1]); }
+      c.closePath();
+    } else {
+      c.moveTo(p[0][0], p[0][1]);
+      for (let i = 1; i < n - 1; i++) { const q = m(p[i], p[i+1]); c.quadraticCurveTo(p[i][0], p[i][1], q[0], q[1]); }
+      c.lineTo(p[n-1][0], p[n-1][1]);
+    }
+  }
+  backend(g) {
+    return {
+      fill: (p, col) => { g.beginPath(); this.path(g, p, true); g.fillStyle = col; g.fill(); },
+      stroke: (p, col, w) => { g.beginPath(); this.path(g, p, false); g.strokeStyle = col; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; g.stroke(); },
+      rect: (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); },
+      text: (ch, x, y, S, col) => { g.font = `700 ${S}px ${this.F}`; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = col; g.fillText(ch, x, y); }
+    };
+  }
+  vine(base, dir, len, amp, waves, ph, bend, n) {
+    n = n || 40; const P = [[base[0], base[1]]], step = len / n; let x = base[0], y = base[1];
+    for (let i = 1; i <= n; i++) {
+      const u = i / n, a = dir + bend * u + amp * Math.sin(u * Math.PI * waves + ph) * Math.min(1, u * 3);
+      x += Math.cos(a) * step; y += Math.sin(a) * step; P.push([x, y]);
+    }
+    return P;
+  }
+  curl(P, sign, rad) {
+    const n = P.length, e = P[n - 1], a = Math.atan2(e[1] - P[n - 2][1], e[0] - P[n - 2][0]);
+    const c = [e[0] - Math.sin(a) * sign * rad, e[1] + Math.cos(a) * sign * rad];
+    const a0 = Math.atan2(e[1] - c[1], e[0] - c[0]);
+    for (let i = 1; i <= 14; i++) { const u = i / 14, t = a0 + sign * u * Math.PI * 1.6, rr = rad * (1 - 0.5 * u); P.push([c[0] + Math.cos(t) * rr, c[1] + Math.sin(t) * rr]); }
+    return P;
+  }
+  weave(r, startLayer) {
+    const cuts = []; const nc = 1 + Math.floor(r() * 3);
+    for (let i = 0; i < nc; i++) cuts.push(0.15 + r() * 0.7);
+    cuts.sort((a, b) => a - b);
+    const segs = []; let u0 = 0, layer = startLayer;
+    for (const c of cuts) {
+      if (c <= u0) continue;
+      segs.push({ u0, u1: c, layer });
+      if (r() < 0.3) { const g = 0.02 + r() * 0.03; u0 = Math.min(0.98, c + g); } else u0 = c;
+      layer = 1 - layer;
+    }
+    segs.push({ u0, u1: 1, layer });
+    return segs;
+  }
+  layerAt(segs, u) { for (const s of segs) if (u >= s.u0 && u <= s.u1) return s.layer; return segs[segs.length - 1].layer; }
+
+  // ---------- layout ----------
+  resize() {
+    const c = this.cv.current, r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    if (!r.width) return;
+    this.W = r.width; this.H = r.height; this.dpr = d;
+    c.width = Math.round(r.width * d); c.height = Math.round(r.height * d);
+    this.layout(true);
+  }
+  mw(ch) {
+    if (this.cache[ch] != null) return this.cache[ch];
+    this.g.font = `700 100px ${this.F}`;
+    let w = this.g.measureText(ch).width / 100;
+    if (ch === ' ') w *= 1.4;
+    return (this.cache[ch] = w);
+  }
+  // sets tx/ty/tw on letters; keeps headroom for the garden above and below the type
+  layoutCore(A, W, H, prevWrapped) {
+    const maxW = W * 0.8, S0 = H * 0.28, LH = 2.1;
+    const ws = A.map(l => this.mw(l.ch));
+    const words = []; let cur = null;
+    A.forEach((l, i) => {
+      if (l.ch === ' ') { if (cur) { words.push(cur); cur = null; } words.push({ sp: true, idx: [i] }); }
+      else { if (!cur) cur = { idx: [] }; cur.idx.push(i); }
+    });
+    if (cur) words.push(cur);
+    const lineW = (li, S) => { let e = li.length; while (e > 0 && A[li[e-1]].ch === ' ') e--; let w = 0; for (let k = 0; k < e; k++) w += ws[li[k]]; return w * S; };
+    const wrap = S => {
+      const lines = [[]]; let lw = 0;
+      for (const w of words) {
+        const ww = w.idx.reduce((s, i) => s + ws[i], 0) * S;
+        if (!w.sp && lw > 0 && lw + ww > maxW) { lines.push([]); lw = 0; }
+        lines[lines.length - 1].push(...w.idx); lw += ww;
+      }
+      return lines;
+    };
+    let lines = [A.map((_, i) => i)];
+    const unit = lineW(lines[0], 1);
+    let S = unit > 0 ? Math.min(S0, maxW / unit) : S0;
+    const multi = words.filter(w => !w.sp).length > 1;
+    let wrapped = multi && (S < H * 0.1 || (prevWrapped && S < H * 0.14));
+    if (wrapped) {
+      let lo = H * 0.03, hi = H * 0.15;
+      for (let k = 0; k < 22; k++) {
+        const mid = (lo + hi) / 2, ls = wrap(mid);
+        const ok = ls.every(li => lineW(li, mid) <= maxW) && ls.length * LH * mid <= H * 0.82;
+        if (ok) lo = mid; else hi = mid;
+      }
+      S = lo; lines = wrap(S);
+      if (lines.length < 2) wrapped = false;
+    }
+    const n = lines.length, lh = LH * S;
+    lines.forEach((li, k) => {
+      let x = W / 2 - lineW(li, S) / 2;
+      const y = H / 2 + (k - (n - 1) / 2) * lh + 0.33 * S;
+      li.forEach(i => { const l = A[i], w = ws[i] * S; l.tx = x + w / 2; l.ty = y; l.tw = w; l.line = k; x += w; });
+    });
+    return { S, wrapped, n };
+  }
+  layout(snap) {
+    if (!this.W) return;
+    const A = this.letters.filter(l => !l.dead);
+    const res = this.layoutCore(A, this.W, this.H, this.wrapped);
+    this.wrapped = res.wrapped;
+    A.forEach(l => { if (l.x == null) { l.x = l.tx; l.y = l.ty; } });
+    const S = res.S, last = A[A.length - 1];
+    this.St = S;
+    this.ctx_ = last ? last.tx + last.tw / 2 + 0.07 * S : this.W / 2;
+    this.cty = last ? last.ty - 0.33 * S : this.H / 2;
+    if (snap || !this.Sd) { this.Sd = S; this.cx = this.ctx_; this.cy = this.cty; A.forEach(l => { l.x = l.tx; l.y = l.ty; }); }
+  }
+
+  // ---------- phone: keyboard + visible area ----------
+  syncVV() {
+    const vv = this.vv; if (!vv) return;
+    const w = Math.round(vv.width);
+    if (this.vvW !== w) { this.vvW = w; this.vvMax = 0; } // rotated: measure again
+    this.vvMax = Math.max(this.vvMax, vv.height);
+    const kb = this.vvMax - vv.height > 120, de = document.documentElement;
+    de.style.setProperty('--tg-top', vv.offsetTop + 'px');
+    de.style.setProperty('--tg-h', vv.height + 'px');
+    if (kb) de.setAttribute('data-kb', ''); else de.removeAttribute('data-kb');
+    // keyboard put away while the field kept focus (Android back gesture): let go, so the next tap brings it back
+    if (!kb && this.kbWas && document.activeElement === this.inp.current) this.inp.current.blur();
+    this.kbWas = kb;
+    this.resize();
+  }
+  refocus() { if (this.ptype === 'mouse' && this.state.mode === 'type' && this.inp.current) this.inp.current.focus({ preventScroll: true }); }
+  liveText() { return (this.letters || []).filter(l => !l.dead).map(l => l.ch).join('').trim(); }
+  wither(now) {
+    const A = this.letters.filter(l => !l.dead), last = A[A.length - 1];
+    if (!last) return;
+    last.dead = now;
+    const pv = A[A.length - 2];
+    if (pv && pv.ch !== ' ') { pv.cut = null; pv.endEls = null; pv.tb = now; }
+    this.layout();
+  }
+  // phone keyboards often skip real key events and write into the field instead, rewriting whole words while
+  // they predict: mirror the field and apply the difference, new letters grow and removed ones wither
+  inputDiff(el) {
+    const S = this.SENT;
+    if (this.state.mode !== 'type' || this._kd) { this.iv = this.composing ? el.value : S; if (!this.composing) el.value = S; return; }
+    const old = this.iv == null ? S : this.iv, cur = el.value;
+    let p = 0; while (p < old.length && p < cur.length && old[p] === cur[p]) p++;
+    let dels = old.length - p;
+    if (p === 0 && old[0] === S && old.length > 1) dels -= 1; // the sentinel is not a letter
+    const now = performance.now(); this.lastKey = now;
+    for (let i = 0; i < dels; i++) this.wither(now);
+    for (const ch of cur.slice(p)) {
+      if (ch === S) continue;
+      if (ch.charCodeAt(0) === 10) { this.letters = []; this.layout(); } else this.add(ch, now);
+    }
+    if (this.composing) this.iv = cur; else { el.value = S; this.iv = S; }
+  }
+
+  // ---------- input ----------
+  key(e) {
+    if (this.state.mode !== 'type') return;
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); e.shiftKey ? this.saveSVG() : this.savePNG(); }
+      return;
+    }
+    if (e.target && e.target.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
+    const now = performance.now();
+    const A = this.letters.filter(l => !l.dead), last = A[A.length - 1];
+    if (e.key === 'Backspace') {
+      e.preventDefault(); this.mark(); if (!last) return;
+      last.dead = now;
+      const pv = A[A.length - 2];
+      if (pv && pv.ch !== ' ') { pv.cut = null; pv.endEls = null; pv.tb = now; }
+      this.layout(); return;
+    }
+    if (e.key === 'Enter') { e.preventDefault(); this.mark(); this.letters = []; this.layout(); return; }
+    if (e.key.length !== 1) return;
+    e.preventDefault(); this.mark();
+    this.add(e.key, now);
+  }
+  mark() { this.lastKey = performance.now(); this._kd = true; setTimeout(() => { this._kd = false; }, 0); }
+  add(ch, now) {
+    const A = this.letters.filter(l => !l.dead), last = A[A.length - 1];
+    if (ch === ' ') {
+      if (last && last.ch !== ' ') { last.cut = now; this.genEnd(last, now - last.birth); }
+      this.letters.push({ ch: ' ', id: this.uid++, birth: now, els: [] });
+      this.layout(); return;
+    }
+    const same = last && last.ch !== ' ';
+    const l = { ch, id: this.uid++, birth: now, tb: now, ws: same ? last.ws : Math.floor(this.rand() * 1e9), wi: same ? last.wi + 1 : 0, prev: same ? last : null };
+    this.gen(l);
+    this.letters.push(l);
+    this.layout();
+  }
+
+  // ---------- growth ----------
+  wordParams(ws) {
+    const r = this.rng(ws * 7 + 13), dens = this.props.density ?? 1;
+    return { roseP: 0.3 + r() * 0.3, leafy: (0.6 + r() * 0.8) * dens, dens, lean: (r() - 0.5) * 0.6, big: 0.85 + r() * 0.45, curvy: 0.8 + r() * 0.6, bridgeP: Math.min(0.95, (0.45 + r() * 0.35) * dens), w: 0.5 };
+  }
+  grow(r, E, nid, p, o) {
+    const tip = o.tip || (r() < p.roseP ? 'rose' : r() < 0.45 ? 'fan' : r() < 0.6 ? 'leaf' : 'curl');
+    let P = o.pts || this.vine(o.base, o.dir, o.len, (0.35 + r() * 0.45) * p.curvy, 1 + r() * 1.6, r() * 6.28, (r() - 0.5) * 1.2, 40);
+    if (tip === 'curl') P = this.curl(P, r() < 0.5 ? -1 : 1, 0.05 + r() * 0.05);
+    const segs = this.weave(r, o.layer0 != null ? o.layer0 : (r() < 0.5 ? 0 : 1));
+    const dur = Math.max(320, (o.len || 0.8) * 620);
+    const thorns = []; const nt = Math.floor(r() * 2.5);
+    for (let i = 0; i < nt; i++) thorns.push({ u: 0.15 + r() * 0.65, s: r() < 0.5 ? -1 : 1 });
+    E.push({ t: 'stem', id: nid(), pts: P, segs, d0: o.d0, dur, w: o.depth ? 0.82 : 1, thorns });
+    const nl = Math.floor(r() * 2.8 * p.leafy);
+    let sd = r() < 0.5 ? -1 : 1;
+    for (let i = 0; i < nl; i++) {
+      const u = 0.25 + r() * 0.6, [q, a] = this.at(P, u); sd = -sd;
+      E.push({ t: 'leaf', id: nid(), x: q[0], y: q[1], a: a + sd * (0.55 + r() * 0.5), L: (0.14 + r() * 0.2) * (o.depth ? 0.8 : 1), bend: (r() - 0.5) * 1.2, layer: this.layerAt(segs, u), d0: o.d0 + dur * u });
+    }
+    const [tp, ta] = this.at(P, 1), td = o.d0 + dur * 0.8, tl = this.layerAt(segs, 1);
+    if (tip === 'rose') {
+      const R = (0.13 + r() * 0.15) * p.big * (o.depth ? 0.75 : 1);
+      // legibility: a rose sitting over the letter body mostly goes behind it
+      const over = tp[1] > -0.78 && tp[1] < 0.05 && Math.abs(tp[0]) < p.w * 0.5;
+      const layer = over ? (r() < 0.22 ? 1 : 0) : (r() < 0.6 ? 1 : tl);
+      E.push({ t: 'rose', id: nid(), x: tp[0], y: tp[1], R, rot: (r() - 0.5) * 1.0, ph1: r() * 6.28, ph2: r() * 6.28, turns: 1.8 + r() * 1, layer, d0: td });
+      if (r() < 0.2) { const oo = ta + (r() < 0.5 ? 1 : -1) * 1.3; E.push({ t: 'rose', id: nid(), x: tp[0] + Math.cos(oo) * R * 1.4, y: tp[1] + Math.sin(oo) * R * 1.4, R: R * (0.6 + r() * 0.3), rot: (r() - 0.5) * 1.2, ph1: r() * 6.28, ph2: r() * 6.28, turns: 1.8 + r(), layer, d0: td + 120 }); }
+    } else if (tip === 'fan') {
+      const spread = 0.6 + r() * 0.3;
+      for (let j = 0; j < 2; j++) E.push({ t: 'leaf', id: nid(), x: tp[0], y: tp[1], a: ta + (j - 0.5) * spread, L: 0.2 + r() * 0.2, bend: (j - 0.5) * 0.8, layer: tl, d0: td + j * 60 });
+    } else if (tip === 'leaf') {
+      E.push({ t: 'leaf', id: nid(), x: tp[0], y: tp[1], a: ta + (r() - 0.5) * 0.3, L: 0.16 + r() * 0.16, bend: (r() - 0.5), layer: tl, d0: td });
+    }
+    if (!o.depth && r() < 0.3) {
+      const u = 0.35 + r() * 0.35, [q, a] = this.at(P, u);
+      this.grow(r, E, nid, p, { base: q, dir: a + (r() < 0.5 ? -1 : 1) * (0.7 + r() * 0.4), len: (o.len || 0.8) * (0.35 + r() * 0.2), d0: o.d0 + dur * u, depth: 1, layer0: this.layerAt(segs, u) });
+    }
+    return P;
+  }
+  gen(l) {
+    const r = this.rng((l.ws ^ Math.imul(l.wi + 1, 2654435761)) + Math.floor(this.rand() * 1e6));
+    const p = this.wordParams(l.ws), E = []; let k0 = 0; const nid = () => l.id * 100 + (k0++);
+    const w = this.mw(l.ch), inX = () => (r() - 0.5) * w * 0.7; p.w = w;
+    const nUp = 1 + (r() < 0.45 * p.dens ? 1 : 0);
+    for (let i = 0; i < nUp; i++) {
+      this.grow(r, E, nid, p, { base: [inX(), -r() * 0.3], dir: -Math.PI / 2 + p.lean * 0.5 + (r() - 0.5) * 0.7, len: 0.6 + r() * 0.5, d0: 40 + i * 130, tip: l.wi === 0 && i === 0 ? 'rose' : null });
+    }
+    if (r() < 0.4 * p.dens) this.grow(r, E, nid, p, { base: [inX(), -0.1 - r() * 0.35], dir: Math.PI / 2 + (r() - 0.5) * 0.8, len: 0.35 + r() * 0.35, d0: 160 });
+    if (l.prev && r() < p.bridgeP) {
+      const px = -(this.mw(l.prev.ch) + w) / 2;
+      const a = [inX(), -0.05 - r() * 0.55], b = [px + (r() - 0.5) * 0.25, -0.05 - r() * 0.55];
+      const bulge = (r() < 0.55 ? -1 : 1) * (0.4 + r() * 0.4), dx = b[0] - a[0];
+      let P = this.bez(a, [a[0] + dx * 0.15, a[1] + bulge], [b[0] - dx * 0.15, b[1] + bulge * 0.9], b, 40);
+      if (r() < 0.45) P = P.slice(0, Math.floor(P.length * (0.7 + r() * 0.2)));
+      this.grow(r, E, nid, p, { pts: P, len: Math.abs(dx) + Math.abs(bulge), d0: 90, tip: r() < 0.5 ? 'curl' : r() < 0.5 ? 'leaf' : 'rose' });
+    }
+    if (l.wi === 0) this.grow(r, E, nid, p, { base: [-w * 0.3, -0.15 - r() * 0.4], dir: Math.PI + (r() - 0.5) * 1.2, len: 0.45 + r() * 0.3, d0: 120, tip: 'curl' });
+    l.els = E;
+    l.endEls = null;
+    const T = [], tr = this.rng(l.id * 977 + Math.floor(this.rand() * 1e6));
+    this.grow(tr, T, () => l.id * 100 + 90 + T.length, p, { base: [w * 0.25, -0.1 - tr() * 0.45], dir: (tr() - 0.5) * 1.4, len: 0.45 + tr() * 0.25, d0: 0, tip: 'curl', depth: 1 });
+    l.tend = T.filter(e => e.t === 'stem').slice(0, 1);
+  }
+  genEnd(l, rel) {
+    const r = this.rng(l.ws + l.wi * 31 + Math.floor(this.rand() * 1e6)), p = this.wordParams(l.ws), E = [];
+    let k0 = 50; const nid = () => l.id * 100 + (k0++);
+    const w = this.mw(l.ch), n = 1 + Math.floor(r() * 2.5); p.w = w;
+    for (let i = 0; i < n; i++) {
+      const dir = -Math.PI / 2 + 0.6 + (i - (n - 1) / 2) * 0.9 + (r() - 0.5) * 0.4;
+      this.grow(r, E, nid, p, { base: [(r() - 0.2) * w * 0.6, -r() * 0.5], dir, len: 0.4 + r() * 0.45, d0: rel + 40 + i * 90, depth: 1, tip: i === 0 || r() < 0.5 ? 'rose' : 'fan' });
+    }
+    l.endEls = E;
+  }
+
+  strokeRange(B, P, a, b, col, w) {
+    const n = P.length - 1, ia = a * n, ib = b * n;
+    const lerp = t => { const i = Math.min(n - 1, Math.floor(t)), f = t - i; return [P[i][0] + (P[i+1][0] - P[i][0]) * f, P[i][1] + (P[i+1][1] - P[i][1]) * f]; };
+    const pts = [lerp(ia)];
+    for (let i = Math.floor(ia) + 1; i < ib; i++) pts.push(P[i]);
+    pts.push(lerp(ib));
+    if (pts.length >= 2) B.stroke(pts, col, w);
+  }
+  thorn(B, P, u, s, S) {
+    const [p, a] = this.at(P, u), d = a + s * 2.3, L = S * 0.045;
+    B.stroke([p, [p[0] + Math.cos(d) * L, p[1] + Math.sin(d) * L]], this.cc.blue, S * 0.022);
+  }
+  leaf(B, bx, by, a, L, bend) {
+    if (L < 0.5) return;
+    const ca = Math.cos(a), sa = Math.sin(a), px = -sa, py = ca;
+    const ax = u => { const b = Math.sin(Math.PI * u) * bend * 0.15 * L; return [bx + ca * u * L + px * b, by + sa * u * L + py * b]; };
+    const hw = u => L * 0.18 * Math.sin(Math.PI * Math.pow(u, 0.8));
+    const N = 12, s1 = [], s2 = [];
+    for (let i = 0; i <= N; i++) { const u = i / N, c = ax(u), w = hw(u); s1.push([c[0] + px * w, c[1] + py * w]); s2.push([c[0] - px * w, c[1] - py * w]); }
+    const tip = ax(1), base = ax(0);
+    B.fill([base, ...s1.slice(1, N), tip, tip, ...s2.slice(1, N).reverse(), base], this.cc.blue);
+    if (L > 6) { const v = []; for (let i = 0; i <= 8; i++) v.push(ax(0.08 + 0.72 * i / 8)); B.stroke(v, this.cc.vein, Math.max(0.8, L * 0.03)); }
+  }
+  rose(B, cx, cy, R, rot, e, a, tl) {
+    const cr = Math.cos(rot), sr = Math.sin(rot);
+    const tm = tl ? Math.hypot(tl[0], tl[1]) : 0, ux = tm ? tl[0] / tm : 0, uy = tm ? tl[1] / tm : 0, sq = -0.28 * tm;
+    const T = (x, y, z = 0) => {
+      let dx = x * cr - y * sr, dy = x * sr + y * cr;
+      if (tm) { const k = (dx * ux + dy * uy) * sq; dx += k * ux + tl[0] * R * z; dy += k * uy + tl[1] * R * z; }
+      return [cx + dx, cy + dy];
+    };
+    // petals, back to front: [cx, cy, rx, ry, angle, depth, edge]
+    const P = [
+      [0, -0.36, 0.56, 0.54, 0, 0, 0],
+      [-0.5, -0.06, 0.6, 0.6, -0.35, 0, 0],
+      [0.52, -0.06, 0.6, 0.6, 0.35, 0, 0],
+      [-0.42, 0.3, 0.62, 0.48, 0.2, 0.12, 1],
+      [0.47, 0.3, 0.62, 0.48, -0.2, 0.12, 1],
+      [0.05, 0.42, 0.56, 0.38, 0, 0.14, 0]
+    ];
+    const ax0 = 0, ay0 = 0.5, lw = Math.max(0.8, R * 0.045), st = 85;
+    P.forEach((q, i) => {
+      const s = this.spr((a - i * st) / 1000, 8, 14); if (s <= 0.001) return;
+      const open = (1 - Math.min(1, s)) * (q[0] < 0 ? 0.5 : -0.5), ang = q[4] + open, ca = Math.cos(ang), sa = Math.sin(ang);
+      const pt = (th, j) => {
+        const rr = 1 + 0.08 * Math.sin(3 * th + e.ph1 + i) + 0.04 * Math.sin(5 * th + e.ph2);
+        const lx = Math.cos(th) * q[2] * rr, ly = Math.sin(th) * q[3] * rr;
+        const px = q[0] + lx * ca - ly * sa, py = q[1] + lx * sa + ly * ca;
+        return T((ax0 + (px - ax0) * s) * R, (ay0 + (py - ay0) * s) * R, q[5]);
+      };
+      const pts = []; for (let k = 0; k < 26; k++) pts.push(pt(k / 26 * Math.PI * 2));
+      B.fill(pts, this.cc.red);
+      if (q[6] && R >= 12 && s > 0.4) {
+        const arc = []; for (let k = 0; k <= 14; k++) arc.push(pt(Math.PI * (1.18 + 0.64 * k / 14)));
+        this.strokeRange(B, arc, 0, Math.min(1, (s - 0.4) / 0.5), this.cc.line, lw * 0.8);
+      }
+    });
+    const fr = this.eo((a - P.length * st - 80) / 520);
+    if (fr > 0 && R > 3) {
+      const sp = [], scl = [];
+      const turns = R < 20 ? Math.min(e.turns, 1.3) : R < 32 ? e.turns * 0.8 : e.turns;
+      for (let i = 0; i <= 70; i++) { const u = i / 70, th = e.ph1 + u * turns * Math.PI * 2, rr = R * (0.08 + 0.57 * u); sp.push(T(Math.cos(th) * rr * 1.05, Math.sin(th) * rr * 0.72 - 0.12 * R, 0.34 - 0.24 * u)); }
+      this.strokeRange(B, sp, 0, fr, this.cc.line, lw);
+      if (R >= 14) {
+        for (let i = 0; i <= 36; i++) { const u = i / 36; scl.push(T((-0.72 + 1.5 * u) * R, 0.36 * R + 0.16 * R * Math.abs(Math.sin(u * Math.PI * 3)), 0.18)); }
+        this.strokeRange(B, scl, 0, fr, this.cc.line, lw);
+      }
+    }
+  }
+
+  // ---------- render (shared by typing view + poster) ----------
+  frame() {
+    const now = performance.now(), dt = Math.min(64, now - (this.lt || now)); this.lt = now;
+    if (this.state.mode === 'wallpaper') { if (this.wall) this.wall.tick(now); return; }
+    if (this.state.mode === 'poster') {
+      const c = this.pcv.current;
+      if (c && !this.state.busy) this.posterDraw(c.getContext('2d'), now - (this.pt0 || 0));
+      return;
+    }
+    const k = 1 - Math.exp(-dt / 80);
+    this.Sd += (this.St - this.Sd) * k;
+    this.cx += (this.ctx_ - this.cx) * k; this.cy += (this.cty - this.cy) * k;
+    for (const l of this.letters) if (!l.dead && l.tx != null) { l.x += (l.tx - l.x) * k; l.y += (l.ty - l.y) * k; }
+    this.letters = this.letters.filter(l => !(l.dead && now - l.dead > 300));
+    this.paint(now, true);
+  }
+  pal() { const p = this.PAL[this.state.palette] || this.PAL[0]; return { bg: p[1], C: { red: p[2], blue: p[3], line: p[4], text: p[5], vein: p[1] } }; }
+  mainState() { return { letters: this.letters, S: this.Sd, C: this.pal().C, boil: this.props.boil ?? true, recoil: this.props.recoil ?? 20, speed: 1, wither: 260, face: true }; }
+  paint(now, caret) {
+    if (!this.W) return;
+    const g = this.g, d = this.dpr;
+    g.setTransform(d, 0, 0, d, 0, 0); g.fillStyle = this.pal().bg; g.fillRect(0, 0, this.W, this.H);
+    const B = this.backend(g), st = this.mainState();
+    this.render(B, now, st);
+    this.drawFlies(B, now, st.C);
+    if (caret && this.gifts && this.gifts.length) {
+      const LIFE = 60000; this.gifts = this.gifts.filter(gf => now - gf.t0 < LIFE);
+      for (const gf of this.gifts) {
+        const age = now - gf.t0, w = 1 - this.eo((age - (LIFE - 2200)) / 2200);
+        g.globalAlpha = Math.max(0, w);
+        this.rose(B, gf.x * this.W, gf.y * this.H + (1 - w) * this.Sd * 0.3, this.Sd * 0.24 * (0.65 + 0.35 * w), gf.rot + (1 - w) * 0.6, gf.e, age, null);
+      }
+      g.globalAlpha = 1;
+    }
+    if (caret) {
+      const S = this.Sd, on = now - this.lastKey < 500 || Math.floor(now / 530) % 2 === 0, hf = this.eo((now - this.t0) / 600);
+      if (on && hf > 0) { const h = 0.8 * S * hf, w = Math.max(2, S * 0.03); B.rect(this.cx - w / 2, this.cy - h / 2, w, h, st.C.text); }
+    }
+  }
+  render(B, now, st) {
+    const S = st.S, L = st.letters, act = L.filter(l => !l.dead), sp = st.speed || 1;
+    this.cc = st.C; this._now = now; if (st.face) this.perch = [];
+    if (st.face) for (const l of L) {
+      let tx = 0, ty = 0;
+      const A = !l.dead && l.ch !== ' ' ? this.near(l.x, l.y - S * 0.6) : null;
+      if (A) {
+        const dx = A[0] - l.x, dy = A[1] - (l.y - S * 0.6), d = Math.hypot(dx, dy), reach = Math.max(260, S * 3.2);
+        if (d < reach && d > 1) { const w = 1 - d / reach, s = w * w * (3 - 2 * w); tx = dx / d * s; ty = dy / d * s; }
+      }
+      const c = l.lean || (l.lean = [0, 0]);
+      c[0] += (tx - c[0]) * 0.07; c[1] += (ty - c[1]) * 0.07;
+    }
+    // the hand-drawn boil steps 8×/s; st.boilT lets several renders share one boil clock (the wallpaper maker uses it)
+    const f = st.boil ? Math.floor((st.boilT != null ? st.boilT : now) / 120) : 0, amp = st.boil ? Math.max(0.8, S * 0.01) : 0;
+    const kd = l => l.dead ? 1 - this.eo((now - l.dead) / st.wither) : 1;
+    const draw = layer => {
+      for (const l of L) {
+        if (l.ch === ' ' || !l.els) continue;
+        const age = (now - l.birth) * sp, kk = kd(l);
+        const each = e => { if (e.t === 'stem') this.drawStem(B, e, l, age, kk, st, f, amp, layer); else if (e.layer === layer) this.drawEl(B, e, l, age, kk, st, f, amp); };
+        l.els.forEach(each);
+        if (l.endEls) l.endEls.forEach(each);
+        const i = act.indexOf(l), nx = i >= 0 ? act[i + 1] : null;
+        if (l.tend && (l.dead || !nx || nx.ch === ' ')) {
+          let fr = this.eo(((now - l.tb) * sp - 150) / 450);
+          if (l.cut != null) fr *= 1 - this.eo((now - l.cut) * sp / 150) * Math.min(0.85, st.recoil / (0.6 * S));
+          for (const e of l.tend) this.drawStem(B, e, l, age, kk, st, f, amp, layer, fr * kk);
+        }
+      }
+    };
+    draw(0);
+    for (const l of L) if (l.ch !== ' ' && (st.textAll || !l.dead)) B.text(l.ch, l.x, l.y, S, st.C.text);
+    draw(1);
+  }
+  wpt(st, l, x, y) {
+    if (l.birth != null && this._now != null) {
+      const t = (this._now - l.birth) * (st.speed || 1) / 1000;
+      if (t > 0 && t < 2.5) {
+        const hh = Math.max(0, (l.y - y) / st.S), dmp = Math.exp(-t * 3.2), dir = (l.id % 2 ? 1 : -1);
+        x += st.S * 0.07 * hh * dmp * Math.sin(t * 11) * dir;
+        y += st.S * 0.035 * hh * dmp * Math.sin(t * 11 + 1.2);
+      }
+    }
+    if (st.face && l.lean) {
+      const hh = Math.min(2.5, Math.max(0, (l.y - y) / st.S)), f = hh * hh * 0.5 + hh * 0.5;
+      x += l.lean[0] * st.S * 0.1 * f;
+      y += l.lean[1] * st.S * 0.05 * f;
+    }
+    return st.warp ? st.warp(x, y, l) : [x, y];
+  }
+  drawStem(B, e, l, age, kk, st, f, amp, layer, frO) {
+    const S = st.S, fr = frO != null ? frO : this.eo((age - e.d0) / e.dur) * kk; if (fr <= 0) return;
+    const j = this.jit(e.id, f, amp);
+    const P = e.pts.map(p => this.wpt(st, l, l.x + p[0] * S + j[0], l.y + p[1] * S + j[1]));
+    for (const sg of e.segs) {
+      if (sg.layer !== layer) continue;
+      const b = Math.min(sg.u1, fr); if (b <= sg.u0) continue;
+      this.strokeRange(B, P, sg.u0, b, st.C.blue, S * 0.022 * (e.w || 1));
+    }
+    for (const th of e.thorns) if (fr > th.u && this.layerAt(e.segs, th.u) === layer) this.thorn(B, P, th.u, th.s, S);
+  }
+  drawEl(B, e, l, age, kk, st, f, amp) {
+    const S = st.S, j = this.jit(e.id, f, amp), wx = (x, y) => this.wpt(st, l, l.x + x * S + j[0], l.y + y * S + j[1]);
+    const rw = st.rotw ? st.rotw(e) : 0;
+    if (e.t === 'leaf') {
+      const sc = this.spr((age - e.d0) / 1000, 7, 15) * kk; if (sc <= 0) return;
+      const p = wx(e.x, e.y); this.leaf(B, p[0], p[1], e.a + j[2] + rw, e.L * S * sc, e.bend);
+    } else if (e.t === 'rose') {
+      const a = age - e.d0; if (a < 0) return;
+      if (kk <= 0.001) return;
+      const p = wx(e.x, e.y), tl = st.face ? this.faceTurn(e, p[0], p[1]) : null;
+      if ((st.face || st.perchOn) && !l.dead && a > 700) this.perch.push({ id: e.id, x: p[0], y: p[1], R: e.R * S * kk });
+      this.rose(B, p[0], p[1], e.R * S * kk, e.rot + j[2] + rw + (tl ? tl[0] * 0.22 : 0), e, a, tl);
+    }
+  }
+
+  // ---------- poster ----------
+  preset() { return this.PRESETS.find(p => p.id === this.state.preset) || this.PRESETS[0]; }
+  // W×H defaults to the square poster; other sizes (e.g. a 1920×1080 wallpaper) re-lay the garden to fit.
+  // opts.ends: give Scatter the word-end roses too, so every motion grows the identical garden (the wallpaper needs it)
+  buildPoster(W = 1080, H = 1080, opts = {}) {
+    if (!this.g) return;
+    const s = this.state, pr = this.preset(), text = (s.text || '').slice(0, 40) || ' ';
+    this.rand = this.rng(s.seed * 7919 + 1);
+    const L = []; let prev = null, uid = 1;
+    for (const ch of text) {
+      if (ch === ' ') { const sp = { ch: ' ', id: 9000 + uid++, els: [] }; L.push(sp); prev = sp; continue; }
+      const same = prev && prev.ch !== ' ';
+      const l = { ch, id: 9000 + uid++, ws: same ? prev.ws : Math.floor(this.rand() * 1e9), wi: same ? prev.wi + 1 : 0, prev: same ? prev : null };
+      this.gen(l); L.push(l); prev = l;
+    }
+    const n = L.length;
+    // typed (6s loop): type for 1.5s (keystrokes 150ms → 1300ms), hold for 3s, backspace for the last 1.5s
+    // (4.6s → 5.3s), so the last letter's garden has withered (600ms) before the loop restarts
+    const gaps = Math.max(1, n - 1);
+    const step = pr.id === 'grow' ? Math.min(110, 3000 / n) : pr.id === 'typed' ? (n > 1 ? 1150 / gaps : 0) : 0;
+    const off = pr.id === 'grow' ? 200 : pr.id === 'typed' ? 150 : 0;
+    L.forEach((l, i) => { l.b = off + i * step; l.del = 4600 + (n > 1 ? (n - 1 - i) * 700 / gaps : 0); });
+    if (pr.id === 'scatter') { const r = this.rng(s.seed * 31 + 5); L.forEach(l => { l.b = 150 + r() * 2400; }); }
+    const wd = Math.min(60, 900 / n);
+    L.forEach((l, i) => {
+      l.d = pr.id === 'scatter' ? 4700 + i * 8 : 4200 + (n - 1 - i) * wd;
+      const nx = L[i + 1];
+      l.cutRel = null;
+      if ((pr.id !== 'scatter' || opts.ends) && l.ch !== ' ' && nx && nx.ch === ' ') { l.cutRel = Math.max(30, nx.b - l.b); this.genEnd(l, l.cutRel); }
+    });
+    this.rand = Math.random;
+    const res = this.layoutCore(L, W, H, false);
+    // fit the whole garden (not just the type) inside a 6% margin
+    let S = res.S, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const addP = (l, x, y, r) => { const X = l.tx + x * S, Y = l.ty + y * S, R = (r || 0) * S; x0 = Math.min(x0, X - R); x1 = Math.max(x1, X + R); y0 = Math.min(y0, Y - R); y1 = Math.max(y1, Y + R); };
+    for (const l of L) {
+      if (l.ch === ' ') continue;
+      addP(l, -l.tw / S / 2, -0.75); addP(l, l.tw / S / 2, 0.1);
+      const all = [...l.els, ...(l.endEls || [])];
+      for (const e of all) {
+        if (e.t === 'stem') e.pts.forEach(q => addP(l, q[0], q[1], 0.02));
+        else if (e.t === 'leaf') addP(l, e.x, e.y, e.L);
+        else addP(l, e.x, e.y, e.R * 1.15);
+      }
+    }
+    // centre on the type itself; shrink just enough for the garden to clear the margins on every side
+    let tx0 = 1e9, tx1 = -1e9, ty0 = 1e9, ty1 = -1e9;
+    for (const l of L) if (l.ch !== ' ') { tx0 = Math.min(tx0, l.tx - l.tw / 2); tx1 = Math.max(tx1, l.tx + l.tw / 2); ty0 = Math.min(ty0, l.ty - 0.72 * S); ty1 = Math.max(ty1, l.ty); }
+    if (tx0 > tx1) { tx0 = tx1 = W / 2; ty0 = ty1 = H / 2; } // blank text
+    const halfX = W * 0.44, halfY = H * 0.44, bcx = (tx0 + tx1) / 2, bcy = (ty0 + ty1) / 2;
+    const k = Math.min(1.25, halfX / Math.max(1, bcx - x0, x1 - bcx), halfY / Math.max(1, bcy - y0, y1 - bcy));
+    L.forEach(l => { l.tx = W / 2 + (l.tx - bcx) * k; l.ty = H / 2 + (l.ty - bcy) * k; l.tw *= k; l.x = l.tx; l.y = l.ty; });
+    this.P = { letters: L, S: S * k, T: pr.T, preset: pr.id, W, H };
+    this.pt0 = performance.now();
+  }
+  posterFly(B, tt, P, C) {
+    if (!this.perch.length) return;
+    const byId = {}; for (const p of this.perch) byId[p.id] = p;
+    // choose the two landing roses once per poster and follow them by id (re-picking every frame let swaying
+    // roses trade places, so the butterfly jumped between them). Pick the pair furthest apart, so it really
+    // crosses the garden instead of hopping within one cluster, but keep long phrases from turning the hop
+    // into a dash across the whole poster; the left one is visited first, flying on toward the exit
+    if (!P.fly || !byId[P.fly[0]] || !byId[P.fly[1]]) {
+      const ps = this.perch, cap = 520;
+      let best = [ps[0], ps[0]], bs = -1e9;
+      for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+        const d = Math.hypot(ps[i].x - ps[j].x, ps[i].y - ps[j].y), s = d <= cap ? d : cap - (d - cap) * 0.5;
+        if (s > bs) { bs = s; best = [ps[i], ps[j]]; }
+      }
+      best.sort((a, b) => a.x - b.x);
+      P.fly = [best[0].id, best[1].id];
+    }
+    const p1 = byId[P.fly[0]], p2 = byId[P.fly[1]];
+    const A = [-80, P.H * 300 / 1080], s1 = [p1.x, p1.y - p1.R * 0.55], s2 = [p2.x, p2.y - p2.R * 0.55], E = [P.W + 80, P.H * 260 / 1080];
+    const sz = Math.max(12, P.S * 0.09), t = tt / 1000, cl = v => Math.max(0, Math.min(1, v));
+    // arriving from off-canvas: ease out to land; leaving a rose: ease in and out, so take-off has no jolt
+    const eOut = v => this.eo(cl(v)), eInOut = v => { v = cl(v); return v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2; };
+    const leg = (a, b, u, lift, ease) => { const e = ease(u); return [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e - Math.sin(e * Math.PI) * lift]; };
+    let p, flying = true, vx = 0, env = 1;
+    if (t < 1.8) { p = leg(A, s1, t / 1.8, 160, eOut); vx = 1; env = Math.min(1, 6 * (1 - t / 1.8)); }
+    else if (t < 3.4) { p = s1; flying = false; }
+    else if (t < 4.6) { const u = (t - 3.4) / 1.2; p = leg(s1, s2, u, 140, eInOut); vx = s2[0] > s1[0] ? 1 : -1; env = Math.sin(u * Math.PI); }
+    else if (t < 5.8) { p = s2; flying = false; }
+    else { const u = (t - 5.8) / 1.2; p = leg(s2, E, u, 60, eInOut); vx = 1; env = Math.min(1, 4 * u); }
+    let o, ang;
+    // flutter and tilt fade in after take-off and out before landing, so the butterfly doesn't snap onto the rose
+    if (flying) { o = Math.abs(Math.cos(t * 17)); p = [p[0] + Math.sin(t * 7) * 6 * env, p[1] + Math.sin(t * 13) * 4 * env]; ang = vx * 0.3 * env; }
+    else { const burst = (t > 2.4 && t < 2.8) || (t > 5 && t < 5.3); o = burst ? 0.2 + 0.8 * Math.abs(Math.cos(t * 9)) : 0.3 + 0.1 * Math.sin(t * 3); ang = 0; }
+    this.butterfly(B, p[0], p[1], sz, ang, o, C);
+  }
+  drawBg(g, W, H) { g.fillStyle = this.pal().bg; g.fillRect(0, 0, W, H); }
+  posterDraw(g, t) {
+    const P = this.P; if (!P) return;
+    const W = P.W || 1080, H = P.H || 1080, pc = this.pal();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    this.drawBg(g, W, H);
+    const tt = ((t % P.T) + P.T) % P.T, L = P.letters, B = this.backend(g);
+    const st = { letters: L, S: P.S, C: pc.C, boil: this.props.boil ?? true, recoil: this.props.recoil ?? 20, speed: 1, wither: 600, textAll: true, boilT: P.boilT };
+    L.forEach(l => { l.x = l.tx; l.y = l.ty; l.dead = null; });
+    const set = base => L.forEach(l => { l.birth = base + l.b; l.tb = l.birth; l.cut = l.cutRel != null ? l.birth + l.cutRel : null; });
+    if (P.preset === 'breathe') {
+      set(-1e5);
+      const ph = tt / P.T * Math.PI * 2, S = P.S;
+      st.warp = (x, y, l) => { const h = Math.max(0, (l.y - y) / S); return [x + Math.sin(ph + l.x * 0.004 + h * 1.1) * S * 0.03 * h, y + Math.cos(ph + x * 0.003) * S * 0.008 * h]; };
+      st.rotw = e => Math.sin(ph + e.id * 0.7) * 0.12;
+    } else if (P.preset === 'grow' || P.preset === 'scatter') {
+      set(0);
+      L.forEach(l => { if (tt >= l.d) l.dead = l.d; });
+    } else if (P.preset === 'wind') {
+      set(-1e5);
+      const S = P.S, u = tt / P.T, front = -0.35 + u * 1.9;
+      st.warp = (x, y, l) => {
+        const hh = Math.max(0, (l.y - y) / S), d = l.x / W - front;
+        const g = d < 0 ? Math.exp(d * 2.2) * Math.cos(-d * 9) : Math.exp(-d * d * 30);
+        const idle = Math.sin(tt / 1000 * 1.6 + l.x * 0.01) * 0.012;
+        return [x + (g * 0.13 + idle) * S * hh * hh * 0.6 + (g * 0.13 + idle) * S * hh * 0.4, y + Math.abs(g) * 0.02 * S * hh];
+      };
+      st.rotw = e => { const d = e.x / 1080 - front; return (d < 0 ? Math.exp(d * 2.2) * Math.cos(-d * 9) : Math.exp(-d * d * 30)) * 0.35; };
+    } else if (P.preset === 'reach') {
+      set(-1e5);
+      const S = P.S, ph = tt / P.T * Math.PI * 2, lx = W / 2 + Math.sin(ph) * W * 430 / 1080, ly = H / 2 + Math.sin(ph * 2) * H * 260 / 1080;
+      this._light = [lx, ly];
+      st.warp = (x, y, l) => {
+        const dx = lx - l.x, dy = ly - (l.y - S * 0.6), d = Math.hypot(dx, dy) || 1, w = Math.max(0, 1 - d / 560), s = w * w * (3 - 2 * w);
+        const hh = Math.min(2.5, Math.max(0, (l.y - y) / S)), f = hh * hh * 0.5 + hh * 0.5;
+        return [x + dx / d * s * S * 0.12 * f, y + dy / d * s * S * 0.06 * f];
+      };
+      st.rotw = e => { const a = Math.atan2(ly - e.y, lx - e.x); return Math.sin(a) * 0.15; };
+    } else if (P.preset === 'visit') {
+      set(-1e5);
+      st.perchOn = true; this.perch = [];
+      const ph = tt / P.T * Math.PI * 2;
+      st.warp = (x, y, l) => { const hh = Math.max(0, (l.y - y) / P.S); return [x + Math.sin(ph + l.x * 0.004 + hh) * P.S * 0.015 * hh, y]; };
+    } else { // typed: type for 1.5s, hold for 3s, backspace for 1.5s
+      set(0);
+      st.letters = L.filter(l => tt >= l.birth);
+      st.textAll = false;
+      st.letters.forEach((l, i) => {
+        if (tt >= l.del) l.dead = l.del;
+        // like Backspace in the typing view: once the next character is gone, this letter's cut stem grows back
+        const nx = st.letters[i + 1];
+        if (!l.dead && l.ch !== ' ' && nx && tt >= nx.del) { l.cut = null; l.tb = nx.del; }
+      });
+    }
+    this.render(B, tt, st);
+    if (P.preset === 'reach') {
+      const [lx, ly] = this._light;
+      if (P.drawLight) P.drawLight(B, lx, ly, tt, P, st.C); // a custom light (the wallpaper maker swaps in a bee)
+      else {
+        const r = P.S * 0.09, pts = [];
+        for (let k = 0; k < 20; k++) { const a = k / 20 * Math.PI * 2; pts.push([lx + Math.cos(a) * r, ly + Math.sin(a) * r]); }
+        B.fill(pts, st.C.line);
+      }
+    }
+    if (P.preset === 'visit') this.posterFly(B, tt, P, st.C);
+    if (P.preset === 'typed') {
+      // caret sits after the last letter still standing, and before the first letter when the line is empty,
+      // so the loop starts and ends in the same spot; it stays solid while typing or deleting
+      const alive = st.letters.filter(l => !l.dead), last = alive[alive.length - 1], S = P.S, f0 = L[0];
+      const keyAt = Math.max(last ? last.birth : -1e9, ...st.letters.map(l => l.dead || -1e9));
+      if (Math.floor(tt / 400) % 2 === 0 || tt - keyAt < 300) {
+        const x = last ? last.tx + last.tw / 2 + 0.07 * S : f0 ? f0.tx - f0.tw / 2 : W / 2, y = (last || f0) ? (last || f0).ty - 0.33 * S : H / 2, w = Math.max(2, S * 0.03), h = 0.8 * S;
+        B.rect(x - w / 2, y - h / 2, w, h, st.C.text);
+      }
+    }
+  }
+
+  // ---------- export ----------
+  dl(blob, name) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+  savePNG() {
+    this.paint(performance.now(), false);
+    this.cv.current.toBlob(b => b && this.dl(b, 'garden.png'));
+  }
+  // vector garden; letters stay live text set in Playfair Display (loaded from Google Fonts when the SVG opens in a browser)
+  saveSVG() {
+    const parts = [], n = v => Math.round(v * 100) / 100;
+    const pb = () => ({ d: '', moveTo(x, y) { this.d += `M${n(x)} ${n(y)}`; }, lineTo(x, y) { this.d += `L${n(x)} ${n(y)}`; }, quadraticCurveTo(a, b, x, y) { this.d += `Q${n(a)} ${n(b)} ${n(x)} ${n(y)}`; }, closePath() { this.d += 'Z'; } });
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const B = {
+      fill: (p, col) => { const b = pb(); this.path(b, p, true); parts.push(`<path d="${b.d}" fill="${col}"/>`); },
+      stroke: (p, col, w) => { const b = pb(); this.path(b, p, false); parts.push(`<path d="${b.d}" fill="none" stroke="${col}" stroke-width="${n(w)}" stroke-linecap="round" stroke-linejoin="round"/>`); },
+      rect: () => {},
+      text: (ch, x, y, S, col) => parts.push(`<text x="${n(x)}" y="${n(y)}" text-anchor="middle" font-family="Playfair Display, Georgia, serif" font-weight="700" font-size="${n(S)}" fill="${col}">${esc(ch)}</text>`)
+    };
+    this.render(B, performance.now(), this.mainState());
+    const font = `<defs><style>@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&amp;display=swap');</style></defs>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${n(this.W)}" height="${n(this.H)}" viewBox="0 0 ${n(this.W)} ${n(this.H)}">${font}<rect width="100%" height="100%" fill="${this.pal().bg}"/>${parts.join('')}</svg>`;
+    this.dl(new Blob([svg], { type: 'image/svg+xml' }), 'garden.svg');
+  }
+  // garden-<words>-<motion>-<palette>, e.g. garden-dss-breathe-rosenoir (motion and palette as named in the panel)
+  fname() {
+    const squash = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const words = (this.state.text || 'loop').trim().replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 24) || 'loop';
+    return `garden-${words}-${squash(this.preset().label)}-${squash((this.PAL[this.state.palette] || this.PAL[0])[0])}`;
+  }
+  async exportVideo() {
+    if (!this.vmime || this.state.busy) { this.setState({ status: 'Video export isn’t supported in this browser — use PNG frames.' }); return; }
+    const P = this.P, c = document.createElement('canvas'); c.width = c.height = 1080;
+    const g = c.getContext('2d'), stream = c.captureStream(0), track = stream.getVideoTracks()[0];
+    const rec = new MediaRecorder(stream, { mimeType: this.vmime, videoBitsPerSecond: 14e6 }), chunks = [];
+    rec.ondataavailable = e => e.data && e.data.size && chunks.push(e.data);
+    const done = new Promise(r => { rec.onstop = r; });
+    this.setState({ busy: true, status: 'Recording…' });
+    this.posterDraw(g, 0); rec.start();
+    const N = Math.round(P.T / 1000 * 30), wait = ms => new Promise(r => setTimeout(r, ms));
+    const t0 = performance.now();
+    for (let i = 0; i < N; i++) {
+      this.posterDraw(g, i * 1000 / 30);
+      if (track.requestFrame) track.requestFrame();
+      if (i % 15 === 0) this.setState({ status: `Recording ${Math.round(i / N * 100)}%` });
+      const target = t0 + (i + 1) * 1000 / 30; await wait(Math.max(0, target - performance.now()));
+    }
+    rec.stop(); await done;
+    const ext = this.vmime.includes('mp4') ? 'mp4' : 'webm';
+    this.dl(new Blob(chunks, { type: this.vmime.split(';')[0] }), `${this.fname()}.${ext}`);
+    this.setState({ busy: false, status: `Saved ${ext.toUpperCase()} · ${N} frames` });
+  }
+  async exportFrames() {
+    if (this.state.busy) return;
+    const P = this.P, c = document.createElement('canvas'); c.width = c.height = 1080;
+    const g = c.getContext('2d'), N = Math.round(P.T / 1000 * 30), files = [];
+    this.setState({ busy: true, status: 'Rendering frames…' });
+    for (let i = 0; i < N; i++) {
+      this.posterDraw(g, i * 1000 / 30);
+      const b = await new Promise(r => c.toBlob(r, 'image/png'));
+      files.push({ name: `frame_${String(i + 1).padStart(4, '0')}.png`, data: new Uint8Array(await b.arrayBuffer()) });
+      if (i % 10 === 0) this.setState({ status: `Rendering ${Math.round(i / N * 100)}%` });
+    }
+    this.dl(this.zip(files), `${this.fname()}-frames.zip`);
+    this.setState({ busy: false, status: `Saved ${N} PNG frames · 30 fps` });
+  }
+  // minimal stored (uncompressed) zip writer
+  zip(files) {
+    const crcT = this._crcT || (this._crcT = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })());
+    const crc = d => { let c = 0xFFFFFFFF; for (let i = 0; i < d.length; i++) c = crcT[(c ^ d[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), cr = crc(f.data), sz = f.data.length;
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(8, 0, true); h.setUint16(12, 33, true);
+      h.setUint32(14, cr, true); h.setUint32(18, sz, true); h.setUint32(22, sz, true); h.setUint16(26, nm.length, true);
+      parts.push(h.buffer, nm, f.data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(14, 33, true);
+      c.setUint32(16, cr, true); c.setUint32(20, sz, true); c.setUint32(24, sz, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+      cen.push(c.buffer, nm);
+      off += 30 + nm.length + sz;
+    }
+    const cs = cen.reduce((s, b) => s + (b.byteLength || b.length), 0);
+    const e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cs, true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...cen, e.buffer], { type: 'application/zip' });
+  }
+}
+
+// ---------- MP4 writer: wraps H.264 chunks from WebCodecs in a plain .mp4 (one video track) ----------
+class Mp4Writer {
+  constructor(w, h, fps) { this.w = w; this.h = h; this.fps = fps; this.data = []; this.sizes = []; this.keys = []; this.pts = []; this.desc = null; }
+  add(chunk, meta) {
+    const d = meta && meta.decoderConfig && meta.decoderConfig.description;
+    if (d && !this.desc) this.desc = (ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : new Uint8Array(d)).slice();
+    const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b);
+    this.data.push(b); this.sizes.push(b.length); this.pts.push(chunk.timestamp);
+    if (chunk.type === 'key') this.keys.push(this.sizes.length);
+  }
+  finish() {
+    if (!this.desc) throw new Error('the encoder gave no H.264 configuration');
+    const u8 = a => new Uint8Array(a), str = s => u8([...s].map(c => c.charCodeAt(0)));
+    const u32 = (...v) => { const a = new Uint8Array(v.length * 4), d = new DataView(a.buffer); v.forEach((x, i) => d.setUint32(i * 4, x >>> 0)); return a; };
+    const i32 = (...v) => { const a = new Uint8Array(v.length * 4), d = new DataView(a.buffer); v.forEach((x, i) => d.setInt32(i * 4, x | 0)); return a; };
+    const u16 = (...v) => { const a = new Uint8Array(v.length * 2), d = new DataView(a.buffer); v.forEach((x, i) => d.setUint16(i * 2, x)); return a; };
+    const box = (type, ...parts) => { const len = 8 + parts.reduce((s, p) => s + p.length, 0), out = new Uint8Array(len); new DataView(out.buffer).setUint32(0, len); out.set(str(type), 4); let o = 8; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
+    const full = (type, v, flags, ...parts) => box(type, u8([v, (flags >> 16) & 255, (flags >> 8) & 255, flags & 255]), ...parts);
+    const N = this.sizes.length, TS = 90000, delta = Math.round(TS / this.fps), ms = Math.round(N * 1000 / this.fps);
+    const matrix = u32(0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000);
+    const ftyp = box('ftyp', str('isom'), u32(0x200), str('isom'), str('iso2'), str('avc1'), str('mp41'));
+    const mdatLen = 8 + this.sizes.reduce((s, x) => s + x, 0);
+    if (ftyp.length + mdatLen > 0xFFFFFFFF) throw new Error('video too large for one MP4 (over 4 GB)');
+    let off = ftyp.length + 8; const offs = this.sizes.map(s => { const o = off; off += s; return o; });
+    // composition offsets only if the encoder reordered frames (B-frames)
+    const order = this.pts.every((p, i) => i === 0 || p > this.pts[i - 1]);
+    const ctts = order ? [] : [full('ctts', 1, 0, u32(N), ...this.pts.map((p, i) => new Uint8Array([...u32(1), ...i32(Math.round(p * TS / 1e6) - i * delta)])))];
+    const avc1 = box('avc1', u8(6), u16(1), u16(0, 0), u32(0, 0, 0), u16(this.w, this.h), u32(0x00480000, 0x00480000), u32(0), u16(1), u8(32), u16(0x18), u16(0xFFFF), box('avcC', this.desc),
+      box('colr', str('nclx'), u16(1, 1, 1), u8([0]))); // BT.709, limited range: what the browser encoder produces
+    const stbl = box('stbl', full('stsd', 0, 0, u32(1), avc1), full('stts', 0, 0, u32(1, N, delta)), ...ctts,
+      full('stss', 0, 0, u32(this.keys.length, ...this.keys)), full('stsc', 0, 0, u32(1, 1, 1, 1)),
+      full('stsz', 0, 0, u32(0, N, ...this.sizes)), full('stco', 0, 0, u32(N, ...offs)));
+    const minf = box('minf', full('vmhd', 0, 1, u16(0, 0, 0, 0)), box('dinf', full('dref', 0, 0, u32(1), full('url ', 0, 1))), stbl);
+    const mdia = box('mdia', full('mdhd', 0, 0, u32(0, 0, TS, N * delta), u16(0x55C4, 0)), full('hdlr', 0, 0, u32(0), str('vide'), u32(0, 0, 0), str('VideoHandler\0')), minf);
+    const tkhd = full('tkhd', 0, 3, u32(0, 0, 1, 0, ms, 0, 0), u16(0, 0, 0, 0), matrix, u32(this.w * 65536, this.h * 65536));
+    const moov = box('moov', full('mvhd', 0, 0, u32(0, 0, 1000, ms, 0x10000), u16(0x100, 0), u32(0, 0), matrix, u32(0, 0, 0, 0, 0, 0, 2)), box('trak', tkhd, mdia));
+    return new Blob([ftyp, u32(mdatLen), str('mdat'), ...this.data, moov], { type: 'video/mp4' });
+  }
+}
+// pick an H.264 encoder setup the browser supports: lowest level that fits, High → Main → Baseline, hardware first
+async function pickEncoder(w, h, fps) {
+  if (typeof VideoEncoder === 'undefined') return null;
+  const fs = Math.ceil(w / 16) * Math.ceil(h / 16), mbps = fs * fps;
+  const levels = [[0x28, 8192, 245760], [0x2A, 8704, 522240], [0x32, 22080, 589824], [0x33, 36864, 983040], [0x34, 36864, 2073600], [0x3C, 139264, 4177920]]
+    .filter(([, f, m]) => fs <= f && mbps <= m).map(x => x[0].toString(16).toUpperCase());
+  const bitrate = Math.round(Math.min(80e6, w * h * fps * 0.04)); // flat colours compress well: ~5 Mb/s at 1080p60, ~20 at 4K60
+  for (const prof of ['6400', '4D40', '42E0']) for (const lv of levels) for (const hw of ['prefer-hardware', 'no-preference']) {
+    const cfg = { codec: `avc1.${prof}${lv}`, width: w, height: h, framerate: fps, bitrate, bitrateMode: 'variable', latencyMode: 'quality', hardwareAcceleration: hw, avc: { format: 'avc' } };
+    try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) return s.config; } catch (e) {}
+  }
+  return null;
+}
+
+// ---------- Wallpaper mode: one seamless loop through every motion and palette ----------
+// Every motion draws the same garden (same words, same seed). The engine's drawing is recorded point by point,
+// so each hand-over is placed where two motions' gardens are closest: Typed's hold, Grow & wither's and
+// Scatter's full bloom are identical (perfect cuts); elsewhere the points slide the last few pixels. The garden
+// is always laid out at the 1080p design size; bigger outputs draw it scaled, so a 4K export moves identically.
+function makeWallpaper(t) {
+  const PRESET = {
+    text: 'in bloom', seed: 7, size: '1920x1080', rate: '60+30', fade: 1000, bookend: 'Rose noir', bee: true,
+    middle: [['Midnight', 'scatter', 1], ['Orchid', 'grow', 1], ['Moss', 'visit', 1], ['Citrus', 'wind', 1], ['Tomato', 'reach', 1],
+      ['Butter', 'breathe', 2], ['Paper', 'wind', 1], ['Blush', 'scatter', 1], ['Mono', 'grow', 1]]
+  };
+  const KEY = 'tg-wallpaper-v2', clone = o => JSON.parse(JSON.stringify(o));
+  let S = clone(PRESET);
+  try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v && Array.isArray(v.middle)) S = { ...S, ...v }; } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+  const view = $('#wcv'), vg = view.getContext('2d');
+  const smooth = u => u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u);
+  let segs = null, J = [], total = 1, W = 1920, H = 1080, OW = 1920, OH = 1080, ready = false, busy = false;
+  const dims = () => S.size.split('x').map(Number);
+  const design = () => { const [w, h] = dims(); return w >= h ? [1920, 1080] : [1080, 1920]; };
+  const rates = () => S.rate === '60+30' ? { src: 60, out: [60, 30] } : { src: +S.rate, out: [+S.rate] };
+  const slug = s => (s || 'garden').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'garden';
+  const outName = fps => `garden-${slug(S.text)}-wallpaper-${Math.min(OW, OH)}p${fps}${OH > OW ? '-portrait' : ''}`;
+  const label = id => (t.PRESETS.find(p => p.id === id) || {}).label || id;
+  const palIdx = name => Math.max(0, t.PAL.findIndex(p => p[0] === name));
+  // the builder borrows the app's garden; put back what the Poster tab was showing after every use
+  const keep = () => ({ text: t.state.text, seed: t.state.seed, preset: t.state.preset, P: t.P, rand: t.rand, pt0: t.pt0 });
+  const restore = k => { t.state.text = k.text; t.state.seed = k.seed; t.state.preset = k.preset; t.P = k.P; t.rand = k.rand; t.pt0 = k.pt0; };
+
+  // ---------- recording what the engine draws ----------
+  let REC = null, EXTRA = false;
+  const recorder = {
+    fill: (p, col) => REC.push({ k: 0, p, col, x: EXTRA }),
+    stroke: (p, col, w) => REC.push({ k: 1, p, col, w, x: EXTRA }),
+    rect: (x, y, w, h, col) => REC.push({ k: 2, r: [x, y, w, h], col, x: true }),
+    text: (ch, x, y, s, col) => REC.push({ k: 3, ch, tx: x, ty: y, S: s, col, x: EXTRA })
+  };
+  const scratch = document.createElement('canvas').getContext('2d');
+  function capture(P, tt) {
+    const k = keep(); REC = []; t.P = P; t.backend = () => recorder;
+    try { t.posterDraw(scratch, tt); } finally { delete t.backend; EXTRA = false; restore(k); }
+    const out = REC; REC = null; return out;
+  }
+  function gardenPts(cmds) {
+    let n = 0; for (const c of cmds) if (!c.x) n += c.k === 3 ? 1 : c.p.length;
+    const a = new Float32Array(n * 2); let i = 0;
+    for (const c of cmds) { if (c.x) continue; if (c.k === 3) { a[i++] = c.tx; a[i++] = c.ty; } else for (const q of c.p) { a[i++] = q[0]; a[i++] = q[1]; } }
+    return a;
+  }
+  // the butterfly is an extra: it fades with its own segment instead of being morphed
+  const fly = Object.getPrototypeOf(t).posterFly;
+  t.posterFly = function (...a) { EXTRA = true; try { return fly.apply(this, a); } finally { EXTRA = false; } };
+
+  // ---------- the bee (replaces Reach's light; same path, so the stems still lean toward it) ----------
+  function bee(B, x, y, tt, P, C) {
+    EXTRA = true;
+    const ph = tt / P.T * Math.PI * 2, s = P.S * 0.14, secs = tt / 1000;
+    const vx = Math.cos(ph) * P.W * 430 / 1080 * 2 * Math.PI / P.T, vy = 2 * Math.cos(ph * 2) * P.H * 260 / 1080 * 2 * Math.PI / P.T;
+    const fx = vx / Math.sqrt(vx * vx + 0.0144);                     // turns around by squashing through side-on
+    const tilt = Math.max(-0.5, Math.min(0.5, Math.atan2(vy, Math.abs(vx)) * 0.35)) * Math.sign(vx || 1);
+    y += Math.sin(secs * 9) * s * 0.12; x += Math.sin(secs * 5.3) * s * 0.06;
+    const away = P.beeAway || 0; if (away) x += smooth(away) * (P.W * 0.16 + s * 2) * (x > P.W / 2 ? 1 : -1); // flies off the side at hand-overs
+    const ca = Math.cos(tilt), sa = Math.sin(tilt);
+    const T = (px, py) => { px *= fx; return [x + (px * ca - py * sa) * s, y + (px * sa + py * ca) * s]; };
+    const ell = (cx, cy, rx, ry, a, n = 22) => { const pts = [], c = Math.cos(a), sn = Math.sin(a); for (let i = 0; i < n; i++) { const th = i / n * Math.PI * 2, lx = Math.cos(th) * rx, ly = Math.sin(th) * ry; pts.push(T(cx + lx * c - ly * sn, cy + lx * sn + ly * c)); } return pts; };
+    const rx = 0.62, ry = 0.4;
+    const band = (x0, x1) => { const top = [], bot = []; for (let i = 0; i <= 8; i++) { const px = x0 + (x1 - x0) * i / 8, h = ry * Math.sqrt(Math.max(0, 1 - (px / rx) ** 2)); top.push(T(px, -h)); bot.unshift(T(px, h)); } return [...top, ...bot]; };
+    const rgba = (hex, a) => `rgba(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(',')},${a})`;
+    B.fill([T(-0.56, -0.1), T(-0.86, 0.02), T(-0.56, 0.12)], C.blue);
+    B.fill(ell(0, 0, rx, ry, 0), C.red);
+    B.fill(band(-0.3, -0.13), C.vein); B.fill(band(0.05, 0.22), C.vein);
+    B.fill(ell(0.68, -0.04, 0.23, 0.22, 0), C.blue);
+    const lw = Math.max(1, s * 0.05);
+    B.stroke([T(0.78, -0.2), T(0.92, -0.42), T(1.04, -0.5)], C.blue, lw);
+    B.stroke([T(0.7, -0.22), T(0.78, -0.46), T(0.86, -0.56)], C.blue, lw);
+    const o = 0.35 + 0.65 * Math.abs(Math.cos(secs * 47));
+    B.fill(ell(-0.12, -0.36 - 0.26 * o, 0.3, 0.2 * o + 0.05, -0.45), rgba(C.text, 0.55));
+    B.fill(ell(0.14, -0.4 - 0.3 * o, 0.36, 0.24 * o + 0.05, -0.25), rgba(C.text, 0.7));
+    EXTRA = false;
+  }
+  function dot(B, x, y, tt, P, C) {
+    EXTRA = true; const r = P.S * 0.09, pts = [];
+    for (let k = 0; k < 20; k++) { const a = k / 20 * Math.PI * 2; pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); }
+    B.fill(pts, C.line); EXTRA = false;
+  }
+
+  // ---------- finding the hand-overs ----------
+  const FRAME = 1000 / 30;
+  let PC = {}, SAMP = {}, FULL = 0, sampKey = '';
+  function poster(id) {
+    if (!PC[id]) { const k = keep(); Object.assign(t.state, { text: S.text || ' ', seed: S.seed, preset: id }); t.buildPoster(W, H, { ends: true }); PC[id] = t.P; restore(k); }
+    if (id === 'reach') PC[id].drawLight = S.bee ? bee : dot;
+    return PC[id];
+  }
+  function sample(id) { // the garden every 1/30 s (boil off: pure shape); null where it isn't fully grown
+    if (SAMP[id]) return SAMP[id];
+    const P = poster(id), n = Math.round(P.T / FRAME), arr = new Array(n), boil = t.props.boil;
+    t.props.boil = false; P.boilT = undefined; P.beeAway = 0;
+    try { for (let i = 0; i < n; i++) { const g = gardenPts(capture(P, i * FRAME)); arr[i] = g.length === FULL ? g : null; } } finally { t.props.boil = boil; }
+    return (SAMP[id] = arr);
+  }
+  const feasible = (arr, i, half) => { const n = arr.length; for (let k = -half; k <= half; k++) if (!arr[((i + k) % n + n) % n]) return false; return true; };
+  const near = (a, b, T) => { const d = Math.abs(((a - b) % T + T) % T); return Math.min(d, T - d); };
+  function allowed(id, role, ms) { // keep the butterfly and bee off screen at hand-overs
+    if (id === 'visit') return role === 'out' ? ms >= 6750 && ms <= 6970 : ms <= 300;
+    if (id === 'reach') return near(ms, 1500, 6000) <= 600 || near(ms, 4500, 6000) <= 600;
+    return true;
+  }
+  function junction(a, b) {
+    const A = sample(a), B = sample(b);
+    const widths = [S.fade, 1000, 800, 600, 400].filter((x, i, l) => x <= S.fade && l.indexOf(x) === i);
+    for (const strict of [true, false]) for (const w of widths) {
+      const half = Math.round(w / 2 / FRAME);
+      const cands = (id, arr, role) => {
+        if (id === 'typed') { const i = Math.round((3000 + w / 2) / FRAME); return feasible(arr, i, half) ? [i] : []; } // right at the half-hold
+        const out = []; for (let i = 0; i < arr.length; i++) if (feasible(arr, i, half) && (!strict || allowed(id, role, i * FRAME))) out.push(i);
+        return out;
+      };
+      const ca = cands(a, A, 'out'), cb = cands(b, B, 'in');
+      let best = null, bm = Infinity;
+      for (const i of ca) { const x = A[i]; for (const j of cb) { const y = B[j]; let m = 0;
+        for (let k = 0; k < x.length; k += 2) { const dx = x[k] - y[k], dy = x[k + 1] - y[k + 1], d = dx * dx + dy * dy; if (d > m) { m = d; if (m >= bm) break; } }
+        if (m < bm) { bm = m; best = [i, j]; } } }
+      if (best) return { tA: best[0] * FRAME, tB: best[1] * FRAME, w, max: Math.sqrt(bm) };
+    }
+    return { tA: 0, tB: 0, w: S.fade, max: Infinity };
+  }
+  function rebuild() {
+    [W, H] = design(); [OW, OH] = dims();
+    const [vw, vh] = OW >= OH ? [1920, 1080] : [1080, 1920];
+    if (view.width !== vw || view.height !== vh) { view.width = vw; view.height = vh; }
+    const key = [S.text, S.seed, W, H].join('|');
+    if (key !== sampKey) {
+      PC = {}; SAMP = {}; sampKey = key;
+      const boil = t.props.boil; t.props.boil = false;
+      try { FULL = gardenPts(capture(poster('breathe'), 0)).length; } finally { t.props.boil = boil; }
+    }
+    const seq = [{ id: 'typed', pal: palIdx(S.bookend), row: 'open' }]
+      .concat(S.middle.map(([p, id, n], i) => ({ id, pal: palIdx(p), loops: Math.max(1, Math.min(6, n | 0)), row: i })))
+      .concat([{ id: 'typed', pal: palIdx(S.bookend), row: 'close' }]);
+    J = [];
+    for (let k = 0; k < seq.length - 1; k++) J.push(junction(seq[k].id, seq[k + 1].id));
+    let start = 0;
+    seq.forEach((s, k) => {
+      s.P = poster(s.id);
+      s.tin = k === 0 ? 0 : J[k - 1].tB;
+      s.tout = k === seq.length - 1 ? 6000 : J[k].tA;
+      if (k === 0) s.dur = s.tout;
+      else if (k === seq.length - 1) s.dur = 6000 - s.tin;
+      else { const T = s.P.T; let d = ((s.tout - s.tin) % T + T) % T; if (d < 1500) d += T; s.dur = d + (s.loops - 1) * T; }
+      s.start = start; start += s.dur;
+    });
+    segs = seq; total = start;
+  }
+
+  // ---------- palette blending in OKLab ----------
+  const lin = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  const gam = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+  function toLab(hex) {
+    const [r, g, b] = [1, 3, 5].map(i => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+  }
+  function fromLab([L, A, B]) {
+    const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, s = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+    const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+    return '#' + rgb.map(c => Math.round(Math.min(1, Math.max(0, gam(c))) * 255).toString(16).padStart(2, '0')).join('');
+  }
+  const mixHex = (a, b, u) => { if (u <= 0) return a; if (u >= 1) return b; const p = toLab(a), q = toLab(b); return fromLab(p.map((v, i) => v + (q[i] - v) * u)); };
+  function palMix(i, j, u) { const p = t.PAL[i], q = t.PAL[j], c = k => mixHex(p[k], q[k], u), bg = c(1); return { bg, C: { red: c(2), blue: c(3), line: c(4), text: c(5), vein: bg } }; }
+
+  // ---------- drawing a frame ----------
+  function put(R, c, p) {
+    if (c.k === 0) R.fill(p || c.p, c.col); else if (c.k === 1) R.stroke(p || c.p, c.col, c.w);
+    else if (c.k === 2) R.rect(c.r[0], c.r[1], c.r[2], c.r[3], c.col); else R.text(c.ch, c.tx, c.ty, c.S, c.col);
+  }
+  function shoot(P, tt, G, away, pal) { P.boilT = G; P.beeAway = away; t.pal = () => pal; try { return capture(P, tt); } finally { delete t.pal; } }
+  function locate(G) {
+    G = ((G % total) + total) % total;
+    let i = 0; while (i < segs.length - 1 && G >= segs[i + 1].start) i++;
+    if (i < segs.length - 1 && G > segs[i + 1].start - J[i].w / 2) return { G, i, j: i };
+    if (i > 0 && G < segs[i].start + J[i - 1].w / 2) return { G, i, j: i - 1 };
+    return { G, i, j: -1 };
+  }
+  function drawFrame(Gin, g) {
+    const k = g.canvas.width / W;
+    g.setTransform(k, 0, 0, k, 0, 0);
+    try { drawScene(Gin, g); } finally { g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; }
+  }
+  function drawScene(Gin, g) {
+    const { G, i, j } = locate(Gin), R = t.backend(g);
+    g.globalAlpha = 1;
+    if (j < 0) {
+      const s = segs[i], pal = palMix(s.pal, s.pal, 0), c = shoot(s.P, s.tin + (G - s.start), G, 0, pal);
+      g.fillStyle = pal.bg; g.fillRect(0, 0, W, H); for (const x of c) put(R, x);
+      return;
+    }
+    const A = segs[j], B = segs[j + 1], jn = J[j], Gj = B.start, u = smooth((G - Gj) / jn.w + 0.5), pal = palMix(A.pal, B.pal, u);
+    const ca = shoot(A.P, jn.tA + (G - Gj), G, u, pal), cb = shoot(B.P, jn.tB + (G - Gj), G, 1 - u, pal);
+    g.fillStyle = pal.bg; g.fillRect(0, 0, W, H);
+    const ga = ca.filter(c => !c.x), gb = cb.filter(c => !c.x);
+    const same = ga.length === gb.length && ga.every((c, n) => c.k === gb[n].k && (c.k === 3 || c.p.length === gb[n].p.length));
+    if (same) ga.forEach((a, n) => { // one garden, its points sliding from A's pose to B's
+      const b = gb[n];
+      if (a.k === 3) R.text(a.ch, a.tx + (b.tx - a.tx) * u, a.ty + (b.ty - a.ty) * u, a.S, a.col);
+      else { const p = a.p.map((q, m) => [q[0] + (b.p[m][0] - q[0]) * u, q[1] + (b.p[m][1] - q[1]) * u]); if (a.k === 0) R.fill(p, a.col); else R.stroke(p, a.col, a.w + (b.w - a.w) * u); }
+    });
+    else { ga.forEach(c => put(R, c)); g.globalAlpha = u; gb.forEach(c => put(R, c)); g.globalAlpha = 1; } // shapes differ: dissolve
+    g.globalAlpha = 1 - u; ca.forEach(c => c.x && put(R, c));
+    g.globalAlpha = u; cb.forEach(c => c.x && put(R, c));
+    g.globalAlpha = 1;
+  }
+
+  // ---------- panel ----------
+  const fmt = ms => (ms / 1000).toFixed(1) + 's';
+  const jText = jn => !isFinite(jn.max) ? ['dissolve', 'far'] : jn.max < 0.05 ? ['exact cut', 'ex'] : [`${jn.max.toFixed(1)} px slide`, jn.max <= 6 ? '' : 'far'];
+  function info() {
+    const ex = J.filter(x => x.max < 0.05).length;
+    $('#w-info').textContent = `${OW}×${OH} · ${(total / 1000).toFixed(1)}s seamless loop · ${ex} exact cuts, ${J.length - ex} slides`;
+  }
+  function renderPanel() {
+    $('#w-text').value = S.text; $('#w-seed').value = S.seed; $('#w-size').value = S.size; $('#w-rate').value = S.rate;
+    $('#w-fade').value = String(S.fade); $('#w-bee').checked = !!S.bee;
+    const palOpts = sel => t.PAL.map(p => `<option${p[0] === sel ? ' selected' : ''}>${p[0]}</option>`).join('');
+    $('#w-bookend').innerHTML = palOpts(S.bookend);
+    const motions = t.PRESETS.filter(p => p.id !== 'typed');
+    const meta = (s, k) => { const [txt, cls] = k < J.length ? jText(J[k]) : ['then loops', '']; return `<div class="meta"><span>starts ${fmt(s.start)} · ${fmt(s.dur)}</span><span class="${cls}">→ ${txt}</span></div>`; };
+    const fixed = (key, what, k) => { const s = segs.find(x => x.row === key); return `<div class="wseg fixed" data-row="${key}"><span class="n">·</span><span class="cell">${S.bookend}</span><span class="cell">Typed · ${what}</span><span></span><span></span>${meta(s, k)}</div>`; };
+    const rows = S.middle.map(([p, id, n], i) => {
+      const s = segs.find(x => x.row === i);
+      return `<div class="wseg" data-row="${i}"><span class="n">${i + 1}</span>
+        <select class="wsel" data-k="pal" aria-label="Palette for segment ${i + 1}">${palOpts(p)}</select>
+        <select class="wsel" data-k="motion" aria-label="Motion for segment ${i + 1}">${motions.map(m => `<option value="${m.id}"${m.id === id ? ' selected' : ''}>${m.label}</option>`).join('')}</select>
+        <input class="winput" data-k="loops" type="number" min="1" max="6" value="${n}" aria-label="Repeats for segment ${i + 1}" title="repeats">
+        <span class="btns"><button type="button" data-k="up" ${i ? '' : 'disabled'} aria-label="Move up">↑</button><button type="button" data-k="down" ${i < S.middle.length - 1 ? '' : 'disabled'} aria-label="Move down">↓</button><button type="button" data-k="del" ${S.middle.length > 1 ? '' : 'disabled'} aria-label="Remove">✕</button></span>
+        ${meta(s, i + 1)}</div>`;
+    }).join('');
+    $('#w-segs').innerHTML = fixed('open', 'type + ½ hold', 0) + rows + fixed('close', '½ hold + erase', J.length);
+    const usedM = new Set(S.middle.map(m => m[1])), usedP = new Set([S.bookend, ...S.middle.map(m => m[0])]);
+    const miss = [...motions.filter(m => !usedM.has(m.id)).map(m => m.label), ...t.PAL.filter(p => !usedP.has(p[0])).map(p => p[0])];
+    $('#w-cover').textContent = miss.length ? `not used yet: ${miss.join(', ')}` : 'every motion and palette is in the loop';
+    const can = typeof VideoEncoder !== 'undefined';
+    $('#w-export').disabled = busy || !can;
+    if (!can && !busy) $('#w-status').textContent = 'MP4 export needs a browser with WebCodecs (Chrome, Edge, or a recent Firefox).';
+    info();
+  }
+  function changed() { save(); rebuild(); renderPanel(); pos = Math.min(pos, total - 1); base = performance.now() - pos; }
+  function wire() {
+    let tx; $('#w-text').addEventListener('input', e => { S.text = e.target.value; clearTimeout(tx); tx = setTimeout(changed, 350); });
+    $('#w-seed').addEventListener('change', e => { S.seed = Math.max(1, e.target.value | 0); changed(); });
+    $('#w-regrow').addEventListener('click', () => { S.seed = 1 + Math.floor(Math.random() * 99999); changed(); });
+    $('#w-size').addEventListener('change', e => { S.size = e.target.value; changed(); });
+    $('#w-rate').addEventListener('change', e => { S.rate = e.target.value; changed(); });
+    $('#w-fade').addEventListener('change', e => { S.fade = +e.target.value; changed(); });
+    $('#w-bookend').addEventListener('change', e => { S.bookend = e.target.value; changed(); });
+    $('#w-bee').addEventListener('change', e => { S.bee = e.target.checked; changed(); });
+    $('#w-reset').addEventListener('click', () => { S = clone(PRESET); changed(); });
+    $('#w-add').addEventListener('click', () => { const last = S.middle[S.middle.length - 1] || ['Paper', 'breathe', 1]; S.middle.push([last[0], last[1], 1]); changed(); });
+    $('#w-segs').addEventListener('change', e => {
+      const row = e.target.closest('.wseg'), i = +row.dataset.row, k = e.target.dataset.k; if (Number.isNaN(i)) return;
+      if (k === 'pal') S.middle[i][0] = e.target.value;
+      if (k === 'motion') S.middle[i][1] = e.target.value;
+      if (k === 'loops') S.middle[i][2] = Math.max(1, Math.min(6, e.target.value | 0));
+      changed();
+    });
+    $('#w-segs').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const i = +b.closest('.wseg').dataset.row, k = b.dataset.k, m = S.middle;
+      if (k === 'up' && i > 0) [m[i - 1], m[i]] = [m[i], m[i - 1]];
+      if (k === 'down' && i < m.length - 1) [m[i + 1], m[i]] = [m[i], m[i + 1]];
+      if (k === 'del' && m.length > 1) m.splice(i, 1);
+      changed();
+    });
+    $('#w-play').addEventListener('click', () => { playing = !playing; base = performance.now() - pos; $('#w-play').textContent = playing ? 'Pause' : 'Play'; });
+    $('#w-scrub').addEventListener('input', e => { pos = e.target.value / 1000 * total; base = performance.now() - pos; });
+    $('#w-export').addEventListener('click', () => exportMP4());
+  }
+
+  // ---------- preview ----------
+  let playing = true, base = performance.now(), pos = 0;
+  function tick(now) {
+    if (!ready || busy) return;
+    if (playing) pos = (now - base) % total;
+    drawFrame(pos, vg);
+    $('#w-scrub').value = Math.round(pos / total * 1000);
+    $('#w-time').textContent = `${(pos / 1000).toFixed(2)} / ${(total / 1000).toFixed(1)}s`;
+    const { i, j } = locate(pos), on = (j < 0 ? [segs[i].row] : [segs[j].row, segs[j + 1].row]).map(String);
+    document.querySelectorAll('#w-segs .wseg').forEach(el => el.classList.toggle('on', on.includes(el.dataset.row)));
+  }
+
+  // ---------- export: every frame through the browser's H.264 encoder, straight into MP4 ----------
+  async function exportMP4() {
+    if (busy) return;
+    const st = s => { $('#w-status').textContent = s; };
+    busy = true; $('#w-export').disabled = true;
+    const r = rates(), N = Math.round(total / 1000 * r.src), ec = document.createElement('canvas');
+    ec.width = OW; ec.height = OH; const eg = ec.getContext('2d');
+    const jobs = [];
+    try {
+      st('Setting up the video encoder…');
+      for (const fps of r.out) {
+        const cfg = await pickEncoder(OW, OH, fps);
+        if (!cfg) throw new Error(`this browser can’t encode ${OW}×${OH} H.264 at ${fps} fps`);
+        const job = { fps, every: r.src / fps, n: 0, err: null, mux: new Mp4Writer(OW, OH, fps), codec: cfg.codec };
+        job.enc = new VideoEncoder({ output: (c, m) => job.mux.add(c, m), error: e => { job.err = e; } });
+        job.enc.configure(cfg);
+        jobs.push(job);
+      }
+      const t0 = performance.now();
+      for (let i = 0; i < N; i++) {
+        drawFrame(i * 1000 / r.src, eg);
+        for (const job of jobs) {
+          if (i % job.every) continue;
+          const f = new VideoFrame(ec, { timestamp: Math.round(job.n * 1e6 / job.fps), duration: Math.round(1e6 / job.fps) });
+          job.enc.encode(f, { keyFrame: job.n % (job.fps * 2) === 0 }); f.close(); job.n++;
+          if (job.err) throw job.err;
+        }
+        while (jobs.some(j => j.enc.encodeQueueSize > 3)) await new Promise(res => setTimeout(res, 0));
+        if (i % 20 === 0) { const el = (performance.now() - t0) / 1000; st(`Encoding frame ${i + 1} / ${N} · ${el.toFixed(0)}s elapsed · ~${(el / (i + 1) * (N - i - 1)).toFixed(0)}s left`); await new Promise(res => setTimeout(res, 0)); }
+      }
+      const names = [];
+      for (const job of jobs) {
+        await job.enc.flush(); job.enc.close(); if (job.err) throw job.err;
+        const blob = job.mux.finish(), name = `${outName(job.fps)}.mp4`;
+        t.dl(blob, name); names.push(`${name} (${(blob.size / 1048576).toFixed(1)} MB)`);
+      }
+      st(`Saved ${names.join(' · ')}`);
+    } catch (e) {
+      for (const job of jobs) { try { job.enc.close(); } catch (x) {} }
+      st('Export failed: ' + (e && e.message || e));
+    }
+    busy = false; renderPanel();
+  }
+
+  return {
+    open() {
+      if (ready) { base = performance.now() - pos; return; }
+      $('#w-info').textContent = 'matching frames across the motions…';
+      setTimeout(() => {
+        if (!t.PAL.some(p => p[0] === S.bookend)) S = clone(PRESET);
+        rebuild(); renderPanel(); wire(); ready = true; base = performance.now();
+      }, 30);
+    },
+    tick,
+    get api() { return { S, segs, J, total, locate, drawFrame, capture, gardenPts, exportMP4, changed, get busy() { return busy; } }; }
+  };
+}
+
+new Garden().mount();
+})();
+</script>
+</body>
+</html>
