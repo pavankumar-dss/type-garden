@@ -10,7 +10,9 @@
 
 ## Use it
 
-Download [`index.html`](index.html) and open it in a browser. No install, no build step. It needs an internet
+**Try it live: [pavankumar-dss.github.io/type-garden](https://pavankumar-dss.github.io/type-garden/)**
+
+Or download [`index.html`](index.html) and open it in a browser. No install, no build step. It needs an internet
 connection the first time only to load the fonts from Google Fonts.
 
 It has three modes, switched at the top right:
